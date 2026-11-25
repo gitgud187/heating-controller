@@ -13,18 +13,18 @@ from typing import TYPE_CHECKING
 from .reasons import Reason, ReasonCode, clock, duration, minutes
 
 if TYPE_CHECKING:
-    from collections.abc import Iterable
+    from collections.abc import Iterable, Mapping
     from datetime import datetime, timedelta
 
     from .config import GuardConfig
 
 
 @dataclass(frozen=True, slots=True)
-class LoadSample:
-    """The load at one evaluation of the current run."""
+class ProgressSample:
+    """The gap (target minus wall, K) of every served room at one evaluation of a run."""
 
     at: datetime
-    load_m2k: float
+    gaps_k: Mapping[str, float]
 
 
 @dataclass(frozen=True, slots=True)
@@ -32,15 +32,18 @@ class GuardInput:
     """
     The core's wish plus the history and inputs the limits need.
 
-    `run_loads` is the sampled load of the current run, oldest first (empty while off).
+    `gaps_k` holds the current gap of every served room; `satisfied` names the rooms that
+    have reached their target. `progress` is the sampled history of the current run, oldest
+    first (empty while off).
     """
 
     now: datetime
     heat: bool
     modulation_pct: int
-    load_m2k: float
+    gaps_k: Mapping[str, float]
+    satisfied: frozenset[str]
     on_since: datetime | None
-    run_loads: tuple[LoadSample, ...]
+    progress: tuple[ProgressSample, ...]
     last_off: datetime | None
     starts: tuple[datetime, ...]
     lockout_until: datetime | None
@@ -57,7 +60,7 @@ class GuardResult:
     """
     The command and the guard state. `reason` is set when the guard overrode the core.
 
-    `run_loads` is the load history to keep: empty unless the boiler stays or goes on.
+    `progress` is the history to keep: empty unless the boiler stays or goes on.
     """
 
     heat: bool
@@ -65,7 +68,7 @@ class GuardResult:
     reason: Reason | None
     lockout_until: datetime | None
     no_open_valve_since: datetime | None
-    run_loads: tuple[LoadSample, ...]
+    progress: tuple[ProgressSample, ...]
 
 
 def recent_starts(
@@ -75,32 +78,65 @@ def recent_starts(
     return tuple(start for start in starts if now - start < window)
 
 
-def record_load(
-    samples: tuple[LoadSample, ...], now: datetime, load_m2k: float, config: GuardConfig
-) -> tuple[LoadSample, ...]:
+def record_progress(
+    samples: tuple[ProgressSample, ...],
+    now: datetime,
+    gaps_k: Mapping[str, float],
+    config: GuardConfig,
+) -> tuple[ProgressSample, ...]:
     """
-    Add the current load to the run's history and drop what the progress check no longer needs.
+    Add the served rooms' gaps to the run's history and drop what the check no longer needs.
 
-    At most one sample per `load_sample_interval`; samples older than the progress window plus
-    the slack are dropped, so the history stays bounded.
+    At most one sample per `progress_sample_interval`; samples older than the progress window
+    plus the slack are dropped, so the history stays bounded.
     """
-    if not samples or now - samples[-1].at >= config.load_sample_interval:
-        samples = (*samples, LoadSample(now, round(load_m2k, config.load_sample_decimals)))
-    keep = config.progress_window + config.load_history_slack
+    if not samples or now - samples[-1].at >= config.progress_sample_interval:
+        rounded = {
+            name: round(gap, config.progress_sample_decimals) for name, gap in gaps_k.items()
+        }
+        samples = (*samples, ProgressSample(now, rounded))
+    keep = config.progress_window + config.progress_history_slack
     return tuple(sample for sample in samples if now - sample.at <= keep)
 
 
 def progress_reference(
-    samples: tuple[LoadSample, ...], now: datetime, config: GuardConfig
-) -> LoadSample | None:
+    samples: tuple[ProgressSample, ...], now: datetime, config: GuardConfig
+) -> ProgressSample | None:
     """
     Return the newest sample at least the progress window old.
 
     None when there is none, or when it is older than the window plus the slack (a long
     restart gap): the check then waits until the history covers a window again.
     """
-    window, keep = config.progress_window, config.progress_window + config.load_history_slack
+    window, keep = config.progress_window, config.progress_window + config.progress_history_slack
     return next((sample for sample in reversed(samples) if window <= now - sample.at <= keep), None)
+
+
+def stuck_rooms(
+    reference: ProgressSample,
+    gaps_k: Mapping[str, float],
+    satisfied: frozenset[str],
+    config: GuardConfig,
+) -> dict[str, tuple[float, float | None]] | None:
+    """
+    Judge progress per room against the reference sample.
+
+    Only rooms served at the reference count. One of them made progress if it is satisfied
+    now, or its gap shrank by at least `progress_margin_k`. Returns None when any room made
+    progress (or none was served then), else each room's gap then and now (None: no longer
+    served, e.g. blocked or excluded).
+    """
+    if not reference.gaps_k:
+        return None
+    stuck: dict[str, tuple[float, float | None]] = {}
+    for name, before in reference.gaps_k.items():
+        if name in satisfied:
+            return None
+        after = gaps_k.get(name)
+        if after is not None and after <= before - config.progress_margin_k:
+            return None
+        stuck[name] = (before, after)
+    return stuck
 
 
 def apply_guard(guard: GuardInput, config: GuardConfig) -> GuardResult:
@@ -136,7 +172,7 @@ def _run_limit(
     guard: GuardInput, ran: timedelta, config: GuardConfig
 ) -> tuple[ReasonCode, str] | None:
     """
-    Limit a run's length: absolute at `max_run`, earlier when the load stops falling.
+    Limit a run's length: absolute at `max_run`, earlier when no served room progresses.
 
     Without a sample a full window old (a fresh run, or a restart gap) there is no verdict
     on progress; `max_run` still applies.
@@ -145,14 +181,21 @@ def _run_limit(
         return ReasonCode.MAX_RUN, f"ran {duration(ran)}"
     if ran < config.progress_check_after:
         return None
-    reference = progress_reference(guard.run_loads, guard.now, config)
-    if reference is None or guard.load_m2k < reference.load_m2k - config.progress_margin_m2k:
+    reference = progress_reference(guard.progress, guard.now, config)
+    if reference is None:
         return None
-    trend = (
-        f"{reference.load_m2k:.1f} → {guard.load_m2k:.1f} m²·K "
-        f"in {minutes(guard.now - reference.at)} min"
+    stuck = stuck_rooms(reference, guard.gaps_k, guard.satisfied, config)
+    if stuck is None:
+        return None
+    rooms = ", ".join(
+        f"{name} {before:.1f} → {'-' if after is None else f'{after:.1f}'} K"
+        for name, (before, after) in sorted(stuck.items())
     )
-    return ReasonCode.NO_PROGRESS, f"ran {duration(ran)}, load not falling ({trend})"
+    window = minutes(guard.now - reference.at)
+    return (
+        ReasonCode.NO_PROGRESS,
+        f"ran {duration(ran)}, no room closer to target in {window} min ({rooms})",
+    )
 
 
 def _running_stop(
@@ -208,12 +251,12 @@ def _result(
 ) -> GuardResult:
     heat = guard.heat and reason is None
     pct = max(config.min_pct, min(config.max_pct, guard.modulation_pct))
-    history = guard.run_loads if guard.on_since is not None else ()
+    history = guard.progress if guard.on_since is not None else ()
     return GuardResult(
         heat=heat,
         modulation_pct=pct if heat else config.idle_pct,
         reason=reason,
         lockout_until=lockout,
         no_open_valve_since=no_open_since,
-        run_loads=record_load(history, guard.now, guard.load_m2k, config) if heat else (),
+        progress=record_progress(history, guard.now, guard.gaps_k, config) if heat else (),
     )

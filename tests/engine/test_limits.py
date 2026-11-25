@@ -9,6 +9,7 @@ from datetime import datetime, timedelta
 import pytest
 
 from custom_components.heating_controller.engine.config import EngineConfig
+from custom_components.heating_controller.engine.demand import RoomStatus
 from custom_components.heating_controller.engine.evaluate import Evaluation, evaluate
 from custom_components.heating_controller.engine.model import (
     Controls,
@@ -64,7 +65,7 @@ class History:
     last_stop: datetime | None = None
     on_since: datetime | None = None
     lockout_end: datetime | None = None
-    run_loads: dict[datetime, float] = field(default_factory=dict)
+    run_gaps: dict[datetime, dict[str, float]] = field(default_factory=dict)
 
     def observe(
         self,
@@ -81,12 +82,12 @@ class History:
             self._check_start(now, controls, open_valve=open_valve)
             self.starts.append(now)
             self.on_since = now
-            self.run_loads = {now: result.load_m2k}
+            self.run_gaps = {now: _gaps(result)}
         elif heat:
             assert self.on_since is not None
             assert now - self.on_since < GUARD.max_run
-            self._check_progress(now, self.on_since, result.load_m2k)
-            self.run_loads[now] = result.load_m2k
+            self._check_progress(now, self.on_since, result)
+            self.run_gaps[now] = _gaps(result)
         elif self.on_since is not None:
             self.last_stop = now
             self.on_since = None
@@ -101,12 +102,27 @@ class History:
         assert not controls.paused
         assert open_valve
 
-    def _check_progress(self, now: datetime, on_since: datetime, load_m2k: float) -> None:
-        """A run past the check must have reduced its load over the last window."""
-        earlier = self.run_loads.get(now - GUARD.progress_window)
-        if now - on_since >= GUARD.progress_check_after and earlier is not None:
-            reference = round(earlier, GUARD.load_sample_decimals)
-            assert load_m2k < reference - GUARD.progress_margin_m2k
+    def _check_progress(self, now: datetime, on_since: datetime, result: Evaluation) -> None:
+        """A run past the check must have a room, served a window ago, that progressed."""
+        earlier = self.run_gaps.get(now - GUARD.progress_window)
+        if now - on_since < GUARD.progress_check_after or not earlier:
+            return
+        current = _gaps(result)
+        satisfied = {room.name for room in result.rooms if room.status is RoomStatus.SATISFIED}
+        assert any(
+            name in satisfied
+            or (name in current and current[name] <= before - GUARD.progress_margin_k)
+            for name, before in earlier.items()
+        )
+
+
+def _gaps(result: Evaluation) -> dict[str, float]:
+    """The served rooms' gaps, rounded as the guard stores them."""
+    return {
+        room.name: round(room.error_k, GUARD.progress_sample_decimals)
+        for room in result.rooms
+        if room.served and room.error_k is not None
+    }
 
 
 def _chance(rng: random.Random, probability: float) -> bool:

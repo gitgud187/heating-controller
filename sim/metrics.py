@@ -274,11 +274,12 @@ def progress_failures(
     result: SimResult, runs: Sequence[Run], by_time: dict[datetime, Sample]
 ) -> list[str]:
     """
-    Find a run that went on past the progress check although its load had not fallen.
+    Find a run that went on past the progress check although no served room progressed.
 
     Judged only where the record has an evaluation exactly one window earlier (inside the
     same run, as the check starts later than one window); that is the sample the guard
-    compares with, rounded as the guard stores it.
+    compares with, rounded as the guard stores it. A room served then progressed if it is
+    satisfied now or its gap shrank by at least the margin.
     """
     guard = result.scenario.config.guard
     for run in runs:
@@ -288,16 +289,33 @@ def progress_failures(
             moment += MINUTE
             if not sample.evaluated or earlier is None or not earlier.evaluated:
                 continue
-            reference = round(earlier.load_m2k, guard.load_sample_decimals)
-            if sample.load_m2k >= reference - guard.progress_margin_m2k:
+            before = {
+                room.name: round(room.gap_k, guard.progress_sample_decimals)
+                for room in earlier.rooms
+                if room.gap_k is not None
+            }
+            if before and not _any_room_progressed(before, sample, guard.progress_margin_k):
                 window = guard.progress_window / MINUTE
                 return [
                     (
-                        f"run from {run.start:%H:%M} went on at {sample.time:%H:%M}: load "
-                        f"{reference:.1f} → {sample.load_m2k:.1f} m²·K in {window:.0f} min"
+                        f"run from {run.start:%H:%M} went on at {sample.time:%H:%M} although "
+                        f"no room closer to target in {window:.0f} min"
                     )
                 ]
     return []
+
+
+def _any_room_progressed(before: dict[str, float], sample: Sample, margin_k: float) -> bool:
+    now = {room.name: room for room in sample.rooms}
+    for name, gap_then in before.items():
+        room = now.get(name)
+        if room is None:
+            continue
+        if room.status is RoomStatus.SATISFIED:
+            return True
+        if room.gap_k is not None and room.gap_k <= gap_then - margin_k:
+            return True
+    return False
 
 
 def criteria_failures(result: SimResult, metrics: Metrics) -> list[str]:

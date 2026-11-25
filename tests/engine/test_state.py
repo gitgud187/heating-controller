@@ -7,7 +7,7 @@ from datetime import timedelta
 import pytest
 
 from custom_components.heating_controller.engine.demand import RoomState
-from custom_components.heating_controller.engine.guard import LoadSample
+from custom_components.heating_controller.engine.guard import ProgressSample
 from custom_components.heating_controller.engine.state import STATE_VERSION, EngineState
 
 from .factories import NOW
@@ -18,10 +18,10 @@ FULL = EngineState(
     starts=(NOW - timedelta(minutes=50), NOW - timedelta(minutes=20)),
     lockout_until=NOW + timedelta(minutes=10),
     no_open_valve_since=NOW - timedelta(minutes=1),
-    run_loads=(
-        LoadSample(NOW - timedelta(minutes=20), 12.5),
-        LoadSample(NOW - timedelta(minutes=19, seconds=0.25), 12.25),
-        LoadSample(NOW, 11.0),
+    progress=(
+        ProgressSample(NOW - timedelta(minutes=20), {"bedroom": 1.25}),
+        ProgressSample(NOW - timedelta(minutes=19, seconds=0.25), {"bedroom": 1.2, "kitchen": 0.5}),
+        ProgressSample(NOW, {}),
     ),
     integral_pct=4.25,
     modulation_pct=55,
@@ -46,47 +46,65 @@ def test_round_trip_through_json(state: EngineState) -> None:
 
 
 def test_integer_integral_is_accepted() -> None:
-    assert EngineState.from_dict({"version": 2, "integral_pct": 3}).integral_pct == 3.0
+    assert EngineState.from_dict({"version": STATE_VERSION, "integral_pct": 3}).integral_pct == 3.0
 
 
 def test_missing_keys_take_defaults() -> None:
-    assert EngineState.from_dict({"version": 2}) == EngineState()
+    assert EngineState.from_dict({"version": STATE_VERSION}) == EngineState()
 
 
 def test_room_without_fields_takes_defaults() -> None:
-    state = EngineState.from_dict({"version": 2, "rooms": {"bedroom": {}}})
+    state = EngineState.from_dict({"version": STATE_VERSION, "rooms": {"bedroom": {}}})
     assert state.rooms == {"bedroom": RoomState()}
 
 
-def test_run_loads_are_stored_as_seconds_into_the_run() -> None:
-    assert FULL.to_dict()["run_loads"] == [[0.0, 12.5], [59.75, 12.25], [1200.0, 11.0]]
+def test_progress_is_stored_as_seconds_into_the_run() -> None:
+    assert FULL.to_dict()["progress"] == [
+        [0.0, {"bedroom": 1.25}],
+        [59.75, {"bedroom": 1.2, "kitchen": 0.5}],
+        [1200.0, {}],
+    ]
 
 
-def test_run_loads_without_a_run_are_dropped() -> None:
-    state = EngineState.from_dict({"version": 2, "run_loads": [[0.0, 5.0]]})
-    assert state.run_loads == ()
-    assert EngineState(run_loads=FULL.run_loads).to_dict()["run_loads"] == []
+def test_progress_without_a_run_is_dropped() -> None:
+    state = EngineState.from_dict({"version": STATE_VERSION, "progress": [[0.0, {"bedroom": 1.0}]]})
+    assert state.progress == ()
+    assert EngineState(progress=FULL.progress).to_dict()["progress"] == []
+
+
+def _without_progress() -> dict[str, object]:
+    return {
+        key: value for key, value in FULL.to_dict().items() if key not in {"version", "progress"}
+    }
 
 
 def test_version_1_with_run_now_is_migrated() -> None:
-    old = {
-        key: value for key, value in FULL.to_dict().items() if key not in {"version", "run_loads"}
-    } | {"version": 1, "run_now_until": (NOW + timedelta(minutes=5)).isoformat()}
+    old = _without_progress() | {
+        "version": 1,
+        "run_now_until": (NOW + timedelta(minutes=5)).isoformat(),
+    }
     state = EngineState.from_dict(old)
-    assert state == replace(FULL, run_loads=())
+    assert state == replace(FULL, progress=())
     saved = state.to_dict()
-    assert saved["version"] == STATE_VERSION == 2
+    assert saved["version"] == STATE_VERSION == 3
     assert "run_now_until" not in saved
+
+
+def test_version_2_load_history_is_dropped() -> None:
+    old = _without_progress() | {"version": 2, "run_loads": [[0.0, 12.5], [60.0, 12.0]]}
+    state = EngineState.from_dict(old)
+    assert state == replace(FULL, progress=())
+    assert "run_loads" not in state.to_dict()
 
 
 @pytest.mark.parametrize(
     "changes",
     [
-        {"version": 3},
+        {"version": 4},
         {"version": 0},
         {"version": None},
         {"version": True},
-        {"version": "2"},
+        {"version": "3"},
         {"on_since": 5},
         {"starts": "2026-11-25T12:00:00+00:00"},
         {"integral_pct": "1.0"},
@@ -96,12 +114,13 @@ def test_version_1_with_run_now_is_migrated() -> None:
         {"rooms": []},
         {"rooms": {"bedroom": {"needs_heat": "yes"}}},
         {"starving_since": {"bedroom": None}},
-        {"run_loads": {}},
-        {"run_loads": [5.0]},
-        {"run_loads": [[0.0]]},
-        {"run_loads": [[0.0, "5"]]},
+        {"progress": {}},
+        {"progress": [5.0]},
+        {"progress": [[0.0]]},
+        {"progress": [[0.0, 1.0]]},
+        {"progress": [[0.0, {"bedroom": "1"}]]},
     ],
 )
 def test_bad_data_raises(changes: dict[str, object]) -> None:
     with pytest.raises(ValueError, match=r"expected|unsupported"):
-        EngineState.from_dict({"version": 2, **changes})
+        EngineState.from_dict({"version": STATE_VERSION, **changes})

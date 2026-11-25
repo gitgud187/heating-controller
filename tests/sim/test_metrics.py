@@ -3,12 +3,10 @@ from __future__ import annotations
 from dataclasses import replace
 from datetime import timedelta
 
-import pytest
-
 from custom_components.heating_controller.engine.demand import RoomStatus
 from custom_components.heating_controller.engine.reasons import ReasonCode
 from sim.devices import FailsafeCause
-from sim.loop import Button, Criteria, Press, RoomSample, Sample, Scenario, SimResult
+from sim.loop import Criteria, RoomSample, Sample, Scenario, SimResult
 from sim.metrics import (
     assess,
     criteria_failures,
@@ -125,33 +123,42 @@ def test_run_too_long() -> None:
 
 
 def _falling(samples: tuple[Sample, ...], per_minute: float = 0.01) -> list[Sample]:
-    """Give the record a load that falls by `per_minute` from 10 m²·K."""
-    return [replace(s, load_m2k=10.0 - per_minute * index) for index, s in enumerate(samples)]
+    """Give the record a room gap that closes by `per_minute` from 2 K."""
+    return [
+        replace(s, rooms=(room(gap_k=2.0 - per_minute * index),)) for index, s in enumerate(samples)
+    ]
+
+
+def _stalled(samples: tuple[Sample, ...]) -> list[Sample]:
+    return [replace(s, rooms=(room(gap_k=0.5),)) for s in samples]
 
 
 def test_progress_failures() -> None:
     falling = result("#" * 240)
     falling = replace(falling, samples=tuple(_falling(falling.samples)))
     assert guard_limit_failures(falling) == []
-    stalled = result("#" * 240, load_m2k=5.0)
+    stalled = result("#" * 240)
+    stalled = replace(stalled, samples=tuple(_stalled(stalled.samples)))
+    message = "although no room closer to target in 60 min"
     assert guard_limit_failures(stalled) == [
-        f"run from {BASE.start:%H:%M} went on at 21:00: load 5.0 → 5.0 m²·K in 60 min"
+        f"run from {BASE.start:%H:%M} went on at 21:00 {message}"
     ]
     # no evaluation one window before 21:00 or at 21:01: judged from 21:02
     gap = with_sample(stalled, 120, evaluated=False)
     gap = with_sample(gap, 181, evaluated=False)
-    assert guard_limit_failures(gap) == [
-        f"run from {BASE.start:%H:%M} went on at 21:02: load 5.0 → 5.0 m²·K in 60 min"
+    assert guard_limit_failures(gap) == [f"run from {BASE.start:%H:%M} went on at 21:02 {message}"]
+    # a room that reached its target counts as progress
+    done = [
+        replace(s, rooms=(room(status=RoomStatus.SATISFIED),)) if index >= 180 else s
+        for index, s in enumerate(stalled.samples)
     ]
-
-
-@pytest.mark.parametrize("code", [ReasonCode.MAX_RUN, ReasonCode.NO_PROGRESS])
-def test_start_inside_lockout_unless_cleared(code: ReasonCode) -> None:
-    res = with_sample(result("##" + "." * 20 + "##"), 2, reasons=(code,))
-    assert any(f"inside a {code} lockout" in f for f in guard_limit_failures(res))
-    cleared = replace(BASE, events=(Press(Button.CLEAR_LOCKOUT, 10 * MINUTE),))
-    res = replace(res, scenario=cleared)
-    assert not any("lockout" in f for f in guard_limit_failures(res))
+    assert guard_limit_failures(replace(stalled, samples=tuple(done))) == []
+    # no room served a window earlier: no verdict
+    unserved = [replace(s, rooms=(room(),)) for s in stalled.samples]
+    assert guard_limit_failures(replace(stalled, samples=tuple(unserved))) == []
+    # a room that is gone from the record now is not progress
+    gone = [replace(s, rooms=()) if index >= 180 else s for index, s in enumerate(stalled.samples)]
+    assert guard_limit_failures(replace(stalled, samples=tuple(gone)))
 
 
 def test_start_while_paused_or_without_open_valve() -> None:

@@ -6,7 +6,7 @@ from dataclasses import dataclass, replace
 from typing import TYPE_CHECKING
 
 from .boiler import CoreInput, decide, total_load, update_starvation
-from .demand import RoomAssessment, RoomState, assess_room
+from .demand import RoomAssessment, RoomState, RoomStatus, assess_room
 from .guard import GuardInput, GuardResult, apply_guard, recent_starts
 from .modulation import ModulationInput, ModulationResult, modulate
 from .reasons import Reason, ReasonCode
@@ -94,9 +94,14 @@ def evaluate(
             now=now,
             heat=core.heat,
             modulation_pct=modulation.output_pct,
-            load_m2k=load,
+            gaps_k={
+                room.name: room.error_k
+                for room in rooms
+                if room.served and room.error_k is not None
+            },
+            satisfied=frozenset(room.name for room in rooms if room.status is RoomStatus.SATISFIED),
             on_since=state.on_since,
-            run_loads=state.run_loads,
+            progress=state.progress,
             last_off=state.last_off,
             starts=state.starts,
             lockout_until=state.lockout_until,
@@ -167,7 +172,7 @@ def _observe_boiler(
     ):
         return state, False
     stopped = replace(
-        state, on_since=None, last_off=snapshot.now, no_open_valve_since=None, run_loads=()
+        state, on_since=None, last_off=snapshot.now, no_open_valve_since=None, progress=()
     )
     return stopped, True
 
@@ -194,7 +199,7 @@ def _next_state(  # noqa: PLR0913 - assembles every part of the new state
         starts=starts,
         lockout_until=guarded.lockout_until,
         no_open_valve_since=guarded.no_open_valve_since if heat else None,
-        run_loads=guarded.run_loads if heat else (),
+        progress=guarded.progress if heat else (),
         integral_pct=modulation.integral_pct,
         modulation_pct=None if command is None else command.modulation_pct,
         last_evaluated=now,

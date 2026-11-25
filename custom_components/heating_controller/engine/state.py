@@ -7,14 +7,16 @@ from datetime import datetime, timedelta
 from typing import TYPE_CHECKING
 
 from .demand import RoomState
-from .guard import LoadSample
+from .guard import ProgressSample
 
 if TYPE_CHECKING:
     from collections.abc import Mapping
 
-STATE_VERSION = 2
+STATE_VERSION = 3
 # Version 1 also stored `run_now_until` (the removed run-now button); it is ignored on load.
-READABLE_VERSIONS = frozenset({1, STATE_VERSION})
+# Version 2 stored the run's total load (`run_loads`) for an earlier progress rule; it is
+# dropped on load, so the progress check waits for a fresh window after the upgrade.
+READABLE_VERSIONS = frozenset({1, 2, STATE_VERSION})
 
 
 @dataclass(frozen=True, slots=True)
@@ -23,8 +25,8 @@ class EngineState:
     Everything the engine remembers between evaluations.
 
     `on_since` is None while the boiler is off. `modulation_pct` is the last value written.
-    `run_loads` is the sampled load of the current run for the guard's progress check; it is
-    empty while the boiler is off and stored as seconds since `on_since`.
+    `progress` is the sampled per-room gap history of the current run for the guard's progress
+    check; it is empty while the boiler is off and stored as seconds since `on_since`.
     """
 
     on_since: datetime | None = None
@@ -32,7 +34,7 @@ class EngineState:
     starts: tuple[datetime, ...] = ()
     lockout_until: datetime | None = None
     no_open_valve_since: datetime | None = None
-    run_loads: tuple[LoadSample, ...] = ()
+    progress: tuple[ProgressSample, ...] = ()
     integral_pct: float = 0.0
     modulation_pct: int | None = None
     last_evaluated: datetime | None = None
@@ -53,7 +55,7 @@ class EngineState:
             "starts": [start.isoformat() for start in self.starts],
             "lockout_until": _iso(self.lockout_until),
             "no_open_valve_since": _iso(self.no_open_valve_since),
-            "run_loads": _run_loads_to_list(self.run_loads, self.on_since),
+            "progress": _progress_to_list(self.progress, self.on_since),
             "integral_pct": self.integral_pct,
             "modulation_pct": self.modulation_pct,
             "last_evaluated": _iso(self.last_evaluated),
@@ -89,7 +91,7 @@ class EngineState:
             starts=tuple(_datetime(item) for item in _list(data.get("starts", []))),
             lockout_until=_opt_datetime(data.get("lockout_until")),
             no_open_valve_since=_opt_datetime(data.get("no_open_valve_since")),
-            run_loads=_run_loads(data.get("run_loads", []), on_since),
+            progress=_progress(data.get("progress", []), on_since),
             integral_pct=_float(data.get("integral_pct", 0.0)),
             modulation_pct=_opt_int(data.get("modulation_pct")),
             last_evaluated=_opt_datetime(data.get("last_evaluated")),
@@ -101,26 +103,27 @@ class EngineState:
         )
 
 
-def _run_loads_to_list(
-    samples: tuple[LoadSample, ...], on_since: datetime | None
-) -> list[list[float]]:
+def _progress_to_list(
+    samples: tuple[ProgressSample, ...], on_since: datetime | None
+) -> list[list[object]]:
     if on_since is None:
         return []
-    return [[(sample.at - on_since).total_seconds(), sample.load_m2k] for sample in samples]
+    return [[(sample.at - on_since).total_seconds(), dict(sample.gaps_k)] for sample in samples]
 
 
-def _run_loads(value: object, on_since: datetime | None) -> tuple[LoadSample, ...]:
-    """Read [seconds since on_since, load] pairs; drop them without a run to anchor them."""
+def _progress(value: object, on_since: datetime | None) -> tuple[ProgressSample, ...]:
+    """Read [seconds since on_since, {room: gap}] pairs; drop them without a run to anchor them."""
     samples = []
     for item in _list(value):
         pair = _list(item)
-        if len(pair) != 2:  # noqa: PLR2004 - a [seconds, load] pair
-            raise _invalid(item, "a [seconds, load] pair")
-        samples.append((_float(pair[0]), _float(pair[1])))
+        if len(pair) != 2 or not isinstance(pair[1], dict):  # noqa: PLR2004 - a pair
+            raise _invalid(item, "a [seconds, {room: gap}] pair")
+        gaps = {str(name): _float(gap) for name, gap in pair[1].items()}
+        samples.append((_float(pair[0]), gaps))
     if on_since is None:
         return ()
     return tuple(
-        LoadSample(on_since + timedelta(seconds=seconds), load) for seconds, load in samples
+        ProgressSample(on_since + timedelta(seconds=seconds), gaps) for seconds, gaps in samples
     )
 
 

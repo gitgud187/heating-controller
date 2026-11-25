@@ -8,7 +8,7 @@ import pytest
 from custom_components.heating_controller.engine.config import EngineConfig
 from custom_components.heating_controller.engine.demand import RoomStatus
 from custom_components.heating_controller.engine.evaluate import Command, Evaluation, evaluate
-from custom_components.heating_controller.engine.guard import LoadSample
+from custom_components.heating_controller.engine.guard import ProgressSample
 from custom_components.heating_controller.engine.model import Controls
 from custom_components.heating_controller.engine.reasons import ReasonCode
 from custom_components.heating_controller.engine.state import EngineState
@@ -189,13 +189,14 @@ def test_stalled_run_locks_out_for_an_hour_until_cleared() -> None:
     run = Run()
     running = run.run(cold, 180)
     assert running.command.heat  # type: ignore[union-attr]  # boiler available
-    assert len(running.state.run_loads) == 71
+    assert len(running.state.progress) == 71
     stopped = run.step(cold)
     assert stopped.reason.code is ReasonCode.NO_PROGRESS
     assert stopped.reason.message == (
-        "stopped: ran 3 h, load not falling (10.0 → 10.0 m²·K in 60 min), locked out until 16:00"
+        "stopped: ran 3 h, no room closer to target in 60 min (bedroom 1.0 → 1.0 K), "
+        "locked out until 16:00"
     )
-    assert stopped.state.run_loads == ()
+    assert stopped.state.progress == ()
     lockout = stopped.state.lockout_until
     assert lockout == run.now - timedelta(minutes=1) + timedelta(hours=1)
     waiting = run.run(cold, 30)
@@ -203,7 +204,7 @@ def test_stalled_run_locks_out_for_an_hour_until_cleared() -> None:
     cleared = run.step(cold, Controls(clear_lockout=True))
     assert cleared.command.heat  # type: ignore[union-attr]  # boiler available
     assert cleared.state.lockout_until is None
-    assert cleared.state.run_loads == (LoadSample(cleared.state.on_since, 10.0),)  # type: ignore[arg-type]  # on since the start
+    assert cleared.state.progress == (ProgressSample(cleared.state.on_since, {"bedroom": 1.0}),)  # type: ignore[arg-type]  # on since the start
 
 
 def _first_stop(run: Run, rooms: Rooms, limit: int) -> tuple[int, Evaluation]:
@@ -215,16 +216,23 @@ def _first_stop(run: Run, rooms: Rooms, limit: int) -> tuple[int, Evaluation]:
     raise AssertionError(msg)
 
 
-def test_progress_keeps_a_run_going_until_the_absolute_limit() -> None:
+def test_slow_warming_below_the_margin_is_no_progress() -> None:
     minute, stopped = _first_stop(Run(), warming(0.1), 400)
+    assert minute == 180
+    assert stopped.reason.code is ReasonCode.NO_PROGRESS
+
+
+def test_progress_keeps_a_run_going_until_the_absolute_limit() -> None:
+    minute, stopped = _first_stop(Run(), warming(0.3), 400)
     assert minute == 360
     assert stopped.reason.code is ReasonCode.MAX_RUN
     assert stopped.reason.message == "stopped: ran 6 h, locked out until 19:00"
 
 
 def test_a_stall_after_progress_is_caught_when_it_happens() -> None:
-    minute, stopped = _first_stop(Run(), warming(0.2, until=timedelta(minutes=225)), 400)
-    assert 255 < minute <= 271
+    minute, stopped = _first_stop(Run(), warming(0.3, until=timedelta(minutes=225)), 400)
+    # 0.3 K/h closes the 0.2 K margin in 40 min, so the verdict flips about 20 min after 225.
+    assert 240 < minute <= 250
     assert stopped.reason.code is ReasonCode.NO_PROGRESS
     assert stopped.reason.message.startswith("stopped: ran 4 h ")
 
@@ -275,7 +283,7 @@ def test_a_stop_by_the_board_starts_the_minimum_off() -> None:
     assert result.reason.code is ReasonCode.MIN_OFF
     assert result.command == Command(heat=False, modulation_pct=CONFIG.guard.idle_pct)
     assert result.state.on_since is None
-    assert result.state.run_loads == ()
+    assert result.state.progress == ()
     assert result.state.last_off == stopped_at
     waiting = run.run(cold, 7)
     assert waiting.reason.code is ReasonCode.MIN_OFF

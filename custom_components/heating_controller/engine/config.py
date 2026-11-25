@@ -77,11 +77,12 @@ class GuardConfig:
     """
     Hard limits that always win over the core.
 
-    A run that has lasted `progress_check_after` is stopped with a lockout as soon as its load
-    has not fallen by more than `progress_margin_m2k` over the last `progress_window`; any run
-    is stopped with a lockout at `max_run`. The load of the current run is sampled at most
-    every `load_sample_interval`, rounded to `load_sample_decimals`, and kept for the window
-    plus `load_history_slack` (which bridges a restart of a few minutes).
+    A run that has lasted `progress_check_after` is stopped with a lockout as soon as no room
+    that was served `progress_window` ago has reached its target or closed its gap by at least
+    `progress_margin_k`; any run is stopped with a lockout at `max_run`. The served rooms' gaps
+    are sampled at most every `progress_sample_interval`, rounded to
+    `progress_sample_decimals`, and kept for the window plus `progress_history_slack` (which
+    bridges a restart of a few minutes).
     """
 
     max_starts: int = 3
@@ -90,10 +91,10 @@ class GuardConfig:
     max_run: timedelta = timedelta(hours=6)
     progress_check_after: timedelta = timedelta(hours=3)
     progress_window: timedelta = timedelta(minutes=60)
-    progress_margin_m2k: float = 0.5
-    load_sample_interval: timedelta = timedelta(minutes=1)
-    load_sample_decimals: int = 2
-    load_history_slack: timedelta = timedelta(minutes=10)
+    progress_margin_k: float = 0.2
+    progress_sample_interval: timedelta = timedelta(minutes=1)
+    progress_sample_decimals: int = 2
+    progress_history_slack: timedelta = timedelta(minutes=10)
     lockout: timedelta = timedelta(hours=1)
     no_open_valve_after: timedelta = timedelta(minutes=3)
     snapshot_max_age: timedelta = timedelta(minutes=2)

@@ -176,6 +176,7 @@ class RoomSample:
     status: RoomStatus | None
     load_m2k: float
     faulted: bool
+    gap_k: float | None = None  # target minus wall while served, as the guard samples it
 
 
 @dataclass(frozen=True, slots=True)
@@ -409,6 +410,9 @@ class Simulation:
                     window_open=name in active.windows,
                     status=None if assessment is None else assessment.status,
                     load_m2k=0.0 if assessment is None else assessment.load_m2k,
+                    gap_k=assessment.error_k
+                    if assessment is not None and assessment.served
+                    else None,
                     faulted=name in active.sensor_faults
                     or name in active.valve_faults
                     or ALL_ROOMS in active.valve_faults,
