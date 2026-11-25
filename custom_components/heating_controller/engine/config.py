@@ -38,13 +38,19 @@ class ValveConfig:
 
 @dataclass(frozen=True, slots=True)
 class BoilerConfig:
-    """The core state machine: start, starvation start, stop, run now."""
+    """
+    The core state machine: start, starvation start, stop, run now.
+
+    `external_stop_grace`: how long after a start the switch may still read off without that
+    counting as a stop made outside the engine.
+    """
 
     start_load_m2k: float = 4.0
     stop_load_m2k: float = 1.5
     min_on: timedelta = timedelta(minutes=10)
     starvation_after: timedelta = timedelta(minutes=45)
     run_now_duration: timedelta = timedelta(minutes=30)
+    external_stop_grace: timedelta = timedelta(seconds=30)
 
 
 @dataclass(frozen=True, slots=True)

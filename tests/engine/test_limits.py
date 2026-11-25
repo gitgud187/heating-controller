@@ -81,6 +81,15 @@ def _move_rooms(rng: random.Random, rooms: list[SimRoom], *, heating: bool) -> N
             sim.wall_dead = not sim.wall_dead
 
 
+def _observed_boiler(rng: random.Random, state: EngineState) -> bool | None:
+    """Mostly what the engine commanded; sometimes unavailable or switched off by the board."""
+    if _chance(rng, 0.002):
+        return None
+    if _chance(rng, 0.005):
+        return False
+    return state.boiler_on
+
+
 def _random_controls(rng: random.Random, paused: bool) -> Controls:  # noqa: FBT001 - helper
     return Controls(
         paused=paused,
@@ -121,7 +130,7 @@ def test_limits_hold_over_two_noisy_days(seed: int) -> None:
             *(sim.snapshot(now) for sim in rooms),
             now=now,
             outdoor=rng.choice([None, -5.0, 0.0, 5.0, 12.0]),
-            boiler_on=None if _chance(rng, 0.002) else state.boiler_on,
+            boiler_on=_observed_boiler(rng, state),
             complete=not _chance(rng, 0.01),
             taken_at=now - timedelta(minutes=3) if _chance(rng, 0.01) else now,
         )

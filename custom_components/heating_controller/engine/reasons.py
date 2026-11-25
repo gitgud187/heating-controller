@@ -25,6 +25,7 @@ class ReasonCode(StrEnum):
     IDLE = "idle"
     ALL_ROOMS_EXCLUDED = "all_rooms_excluded"
     BOILER_UNAVAILABLE = "boiler_unavailable"
+    EXTERNAL_STOP = "external_stop"
     # guard
     PAUSED = "paused"
     LOCKOUT = "lockout"

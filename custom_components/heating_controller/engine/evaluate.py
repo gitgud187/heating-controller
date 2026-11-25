@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from typing import TYPE_CHECKING
 
 from .boiler import CoreInput, decide, total_load, update_starvation
@@ -57,6 +57,7 @@ def evaluate(
 ) -> Evaluation:
     """Run room demand, the core state machine, modulation and the guard, in that order."""
     now = snapshot.now
+    state, external_stop = _observe_boiler(snapshot, state, config)
     rooms = tuple(
         assess_room(room, state.rooms.get(room.name, RoomState()), now, config)
         for room in snapshot.rooms
@@ -112,6 +113,13 @@ def evaluate(
     )
 
     reasons = (core.reason,) if guarded.reason is None else (core.reason, guarded.reason)
+    if external_stop:
+        reasons = (
+            Reason(
+                ReasonCode.EXTERNAL_STOP, "off: the boiler was switched off outside the controller"
+            ),
+            *reasons,
+        )
     command: Command | None = Command(heat=guarded.heat, modulation_pct=guarded.modulation_pct)
     if snapshot.boiler_on is None:
         command = None
@@ -140,6 +148,29 @@ def evaluate(
         modulation=modulation,
         starts_last_hour=len(new_state.starts),
     )
+
+
+def _observe_boiler(
+    snapshot: Snapshot, state: EngineState, config: EngineConfig
+) -> tuple[EngineState, bool]:
+    """
+    Accept a stop made outside the engine.
+
+    The board switches the boiler off on its own when the heartbeat or the API goes away. If
+    the engine believed the boiler on, the next start would otherwise not count as a start
+    and would skip the minimum off time. The stop is dated now (its real time is unknown),
+    which only lengthens the minimum off. A boiler seen off right after a start, before the
+    switch could report, is not a stop.
+    """
+    on_since = state.on_since
+    if (
+        snapshot.boiler_on is not False
+        or on_since is None
+        or snapshot.now - on_since < config.boiler.external_stop_grace
+    ):
+        return state, False
+    stopped = replace(state, on_since=None, last_off=snapshot.now, no_open_valve_since=None)
+    return stopped, True
 
 
 def _next_state(  # noqa: PLR0913 - assembles every part of the new state

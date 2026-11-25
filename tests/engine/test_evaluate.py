@@ -61,12 +61,13 @@ class Run:
         self.now = NOW
         self.state = state or EngineState()
 
-    def step(
+    def step(  # noqa: PLR0913 - a test driver with every input as a keyword
         self,
         rooms: Rooms,
         controls: Controls | None = None,
         *,
         boiler_unavailable: bool = False,
+        observed_off: bool = False,
         complete: bool = True,
         outdoor: float | None = 0.0,
     ) -> Evaluation:
@@ -74,7 +75,7 @@ class Run:
             *rooms(self.now),
             now=self.now,
             outdoor=outdoor,
-            boiler_on=None if boiler_unavailable else self.state.boiler_on,
+            boiler_on=None if boiler_unavailable else self.state.boiler_on and not observed_off,
             complete=complete,
         )
         result = evaluate(snap, self.state, CONFIG, controls or Controls())
@@ -235,3 +236,30 @@ def test_state_survives_a_restart_mid_run() -> None:
     assert restored.state == run.state
     result = restored.step(warm_open)
     assert result.reason.code is ReasonCode.RUNNING_MIN_ON
+
+
+def test_a_stop_by_the_board_starts_the_minimum_off() -> None:
+    # The board's heartbeat failsafe switched the boiler off while the engine was not running.
+    run = Run()
+    run.run(cold, 5)
+    stopped_at = run.now
+    result = run.step(cold, observed_off=True)
+    assert result.reasons[0].code is ReasonCode.EXTERNAL_STOP
+    assert result.reason.code is ReasonCode.MIN_OFF
+    assert result.command == Command(heat=False, modulation_pct=CONFIG.guard.idle_pct)
+    assert result.state.on_since is None
+    assert result.state.last_off == stopped_at
+    waiting = run.run(cold, 7)
+    assert waiting.reason.code is ReasonCode.MIN_OFF
+    restarted = run.step(cold)
+    assert restarted.command.heat  # type: ignore[union-attr]  # boiler available
+    assert restarted.state.starts == (NOW, stopped_at + timedelta(minutes=8))
+
+
+def test_switch_still_off_right_after_a_start_is_not_a_stop() -> None:
+    run = Run()
+    run.step(cold)
+    snap = snapshot(*cold(NOW), now=NOW + timedelta(seconds=10), boiler_on=False)
+    result = evaluate(snap, run.state, CONFIG, Controls())
+    assert ReasonCode.EXTERNAL_STOP not in [r.code for r in result.reasons]
+    assert result.state.on_since == NOW
