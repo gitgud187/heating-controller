@@ -110,3 +110,5 @@ def test_house_lookup_and_room_change() -> None:
     )
     assert changed.room("kitchen").params.area_m2 == 6.0
     assert changed.room("bedroom") == house.room("bedroom")
+    same = house.with_schedule(house.room("kitchen").schedule)
+    assert {spec.schedule for spec in same.rooms} == {house.room("kitchen").schedule}

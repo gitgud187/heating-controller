@@ -3,6 +3,8 @@ from __future__ import annotations
 from dataclasses import replace
 from datetime import timedelta
 
+import pytest
+
 from custom_components.heating_controller.engine.demand import RoomStatus
 from custom_components.heating_controller.engine.reasons import ReasonCode
 from sim.devices import FailsafeCause
@@ -115,13 +117,16 @@ def test_too_many_starts_and_short_off() -> None:
 
 
 def test_run_too_long() -> None:
-    res = result("#" * 182 + ".")
-    assert any("lasted 182 min" in f for f in guard_limit_failures(res))
+    res = result("#" * 362 + ".")
+    assert [f for f in guard_limit_failures(res) if "lasted" in f] == [
+        f"run from {BASE.start:%H:%M} lasted 362 min"
+    ]
 
 
-def test_start_inside_lockout_unless_cleared() -> None:
-    res = with_sample(result("##" + "." * 20 + "##"), 2, reasons=(ReasonCode.MAX_RUN,))
-    assert any("inside a max-run lockout" in f for f in guard_limit_failures(res))
+@pytest.mark.parametrize("code", [ReasonCode.MAX_RUN, ReasonCode.NO_PROGRESS])
+def test_start_inside_lockout_unless_cleared(code: ReasonCode) -> None:
+    res = with_sample(result("##" + "." * 20 + "##"), 2, reasons=(code,))
+    assert any(f"inside a {code} lockout" in f for f in guard_limit_failures(res))
     cleared = replace(BASE, events=(Press(Button.CLEAR_LOCKOUT, 10 * MINUTE),))
     res = replace(res, scenario=cleared)
     assert not any("lockout" in f for f in guard_limit_failures(res))
@@ -148,9 +153,12 @@ def test_short_run_and_max_run_criteria() -> None:
     )
     failures = criteria_failures(res, measure(res))
     assert any("shorter than" in f for f in failures)
-    assert "max-run lockout in a normal run" in failures
-    allowed = replace(res, scenario=replace(BASE, criteria=Criteria(allow_max_run=True)))
-    assert "max-run lockout in a normal run" not in criteria_failures(allowed, measure(allowed))
+    assert "max_run lockout in a normal run" in failures
+    allowed = Criteria(allowed_lockouts=frozenset({ReasonCode.MAX_RUN}))
+    allowed_res = replace(res, scenario=replace(BASE, criteria=allowed))
+    assert "max_run lockout in a normal run" not in criteria_failures(
+        allowed_res, measure(allowed_res)
+    )
 
 
 def test_error_overheat_and_output_levels() -> None:

@@ -94,7 +94,9 @@ def evaluate(
             now=now,
             heat=core.heat,
             modulation_pct=modulation.output_pct,
+            load_m2k=load,
             on_since=state.on_since,
+            run_loads=state.run_loads,
             last_off=state.last_off,
             starts=state.starts,
             lockout_until=state.lockout_until,
@@ -164,7 +166,9 @@ def _observe_boiler(
         or snapshot.now - on_since < config.boiler.external_stop_grace
     ):
         return state, False
-    stopped = replace(state, on_since=None, last_off=snapshot.now, no_open_valve_since=None)
+    stopped = replace(
+        state, on_since=None, last_off=snapshot.now, no_open_valve_since=None, run_loads=()
+    )
     return stopped, True
 
 
@@ -190,6 +194,7 @@ def _next_state(  # noqa: PLR0913 - assembles every part of the new state
         starts=starts,
         lockout_until=guarded.lockout_until,
         no_open_valve_since=guarded.no_open_valve_since if heat else None,
+        run_loads=guarded.run_loads if heat else (),
         integral_pct=modulation.integral_pct,
         modulation_pct=None if command is None else command.modulation_pct,
         last_evaluated=now,

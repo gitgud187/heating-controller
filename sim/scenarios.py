@@ -7,13 +7,14 @@ Every scenario is also judged on the spec 9 guard limits and the spec 13 criteri
 
 from __future__ import annotations
 
+from dataclasses import replace
 from datetime import UTC, datetime, timedelta
 from typing import TYPE_CHECKING
 
 from custom_components.heating_controller.engine.demand import RoomStatus
 from custom_components.heating_controller.engine.reasons import ReasonCode
 
-from .devices import FailsafeCause, Schedule, SensorFault, ValveFault
+from .devices import FailsafeCause, SensorFault, ValveFault
 from .house import default_house
 from .loop import (
     ALL_ROOMS,
@@ -28,12 +29,13 @@ from .loop import (
     WallSensorFault,
     WindowOpen,
 )
-from .metrics import MINUTE, find_runs
+from .metrics import LOCKOUT_STOPS, MINUTE, find_runs
 from .plant import OutdoorProfile
 
 if TYPE_CHECKING:
     from collections.abc import Callable, Iterator
 
+    from .house import HouseSpec
     from .loop import RoomSample, Sample, SimResult
 
 MIDNIGHT = datetime(2026, 1, 14, 0, 0, tzinfo=UTC)
@@ -417,17 +419,33 @@ def pause() -> Scenario:
     )
 
 
+# --- run limits -----------------------------------------------------------------------------
+
+UNDERSIZED = 0.3
+
+
+def _undersized_bedroom() -> HouseSpec:
+    """Return the default house with a bedroom radiator far too small for its target."""
+    return default_house().with_room(
+        "bedroom",
+        lambda spec: replace(
+            spec, params=replace(spec.params, radiator_w=spec.params.radiator_w * UNDERSIZED)
+        ),
+    )
+
+
 CLEAR_AT = _hours(3.5)
-HOT = Schedule(points=((0.0, 24.0),))
 
 
 def _lockout_checks(result: SimResult) -> list[str]:
     runs = find_runs(result.samples)
-    stops = [run for run in runs if run.stop == ReasonCode.MAX_RUN]
+    stops = [run for run in runs if run.stop in LOCKOUT_STOPS]
     if not stops:
-        return ["no max-run stop"]
+        return ["no lockout stop"]
     clear = result.scenario.start + CLEAR_AT
     stopped = stops[0].end
+    if stopped > clear:
+        return [f"first lockout at {stopped:%H:%M}, after the clear"]
     later = [run for run in runs if run.start > stopped]
     if not later:
         return ["no start after clearing the lockout"]
@@ -439,18 +457,19 @@ def _lockout_checks(result: SimResult) -> list[str]:
 
 
 def clear_lockout() -> Scenario:
-    """Run into the 3 h limit with unreachable targets at -15 °C; clear the lockout early."""
+    """Stall in the undersized-bedroom house until the 3 h check stops it; clear early."""
     return Scenario(
         name="clear_lockout",
-        description="3 h run into a lockout at -15 °C, cleared after 30 min",
+        description="stalled run locked out after 3 h at -5 °C, cleared after 30 min",
         start=MIDNIGHT,
         duration=_hours(6),
-        outdoor=OutdoorProfile(mean_c=-15.0),
-        house=default_house().with_schedule(HOT),
+        outdoor=OutdoorProfile(mean_c=-5.0),
+        house=_undersized_bedroom(),
         events=(Press(Button.CLEAR_LOCKOUT, CLEAR_AT),),
         settle=timedelta(0),
-        initial_offset_k=-3.0,
-        criteria=Criteria(max_median_error_k=None, min_distinct_pct=None, allow_max_run=True),
+        criteria=Criteria(
+            max_median_error_k=None, min_distinct_pct=None, allowed_lockouts=LOCKOUT_STOPS
+        ),
         checks=(_lockout_checks,),
     )
 

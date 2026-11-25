@@ -9,7 +9,7 @@ from datetime import datetime, timedelta
 import pytest
 
 from custom_components.heating_controller.engine.config import EngineConfig
-from custom_components.heating_controller.engine.evaluate import evaluate
+from custom_components.heating_controller.engine.evaluate import Evaluation, evaluate
 from custom_components.heating_controller.engine.model import (
     Controls,
     RoomSnapshot,
@@ -58,22 +58,95 @@ class SimRoom:
 
 @dataclass
 class History:
+    """What the boiler really did, to check the guard limits independently of the engine."""
+
     starts: list[datetime] = field(default_factory=list)
     last_stop: datetime | None = None
     on_since: datetime | None = None
     lockout_end: datetime | None = None
+    run_loads: dict[datetime, float] = field(default_factory=dict)
+
+    def observe(
+        self,
+        now: datetime,
+        result: Evaluation,
+        controls: Controls,
+        *,
+        complete: bool,
+        open_valve: bool,
+    ) -> None:
+        heat = result.command is not None and result.command.heat
+        if heat and self.on_since is None:
+            assert complete
+            self._check_start(now, controls, open_valve=open_valve)
+            self.starts.append(now)
+            self.on_since = now
+            self.run_loads = {now: result.load_m2k}
+        elif heat:
+            assert self.on_since is not None
+            assert now - self.on_since < GUARD.max_run
+            self._check_progress(now, self.on_since, result.load_m2k)
+            self.run_loads[now] = result.load_m2k
+        elif self.on_since is not None:
+            self.last_stop = now
+            self.on_since = None
+            if result.reason.code in {ReasonCode.MAX_RUN, ReasonCode.NO_PROGRESS}:
+                self.lockout_end = now + GUARD.lockout
+
+    def _check_start(self, now: datetime, controls: Controls, *, open_valve: bool) -> None:
+        recent = [start for start in self.starts if now - start < GUARD.start_window]
+        assert len(recent) < GUARD.max_starts
+        assert self.last_stop is None or now - self.last_stop >= GUARD.min_off
+        assert self.lockout_end is None or now >= self.lockout_end
+        assert not controls.paused
+        assert open_valve
+
+    def _check_progress(self, now: datetime, on_since: datetime, load_m2k: float) -> None:
+        """A run past the check must have reduced its load over the last window."""
+        earlier = self.run_loads.get(now - GUARD.progress_window)
+        if now - on_since >= GUARD.progress_check_after and earlier is not None:
+            reference = round(earlier, GUARD.load_sample_decimals)
+            assert load_m2k < reference - GUARD.progress_margin_m2k
 
 
 def _chance(rng: random.Random, probability: float) -> bool:
     return rng.random() < probability
 
 
-def _move_rooms(rng: random.Random, rooms: list[SimRoom], *, heating: bool) -> None:
+# Heat loss per minute: mild weather, cold weather in which heating barely gains, and a
+# cold snap in which an open valve cannot keep up (a run that makes no progress).
+LOSSES_K = (0.01, 0.035, 0.045)
+
+
+@dataclass(frozen=True)
+class Regime:
+    """
+    How noisy a seed's house is, per minute.
+
+    A flaky board switches off often enough for restarts to run into the start limit; a
+    steady house lets runs last long enough to reach the absolute run limit.
+    """
+
+    board_off: float = 0.005
+    board_unavailable: float = 0.002
+    target_change: float = 0.005
+
+
+REGIMES = (
+    Regime(),
+    Regime(board_off=0.02),
+    Regime(board_off=0.0, board_unavailable=0.0, target_change=0.0005),
+)
+
+
+def _move_rooms(
+    rng: random.Random, rooms: list[SimRoom], regime: Regime, *, heating: bool, loss_k: float
+) -> None:
     for sim in rooms:
         gain = 0.04 if heating and sim.valve_open else 0.0
-        sim.wall += gain - 0.01 + rng.uniform(-0.01, 0.01)
+        sim.wall += gain - loss_k + rng.uniform(-0.01, 0.01)
         sim.valve_open = sim.wall < sim.target - 0.2 if _chance(rng, 0.9) else sim.valve_open
-        if _chance(rng, 0.005):
+        if _chance(rng, regime.target_change):
             sim.target = rng.choice([17.0, 19.0, 21.0, 22.0])
         if _chance(rng, 0.003):
             sim.window_open = not sim.window_open
@@ -81,15 +154,11 @@ def _move_rooms(rng: random.Random, rooms: list[SimRoom], *, heating: bool) -> N
             sim.wall_dead = not sim.wall_dead
 
 
-def _observed_boiler(rng: random.Random, state: EngineState, *, flaky: bool) -> bool | None:
-    """
-    Mostly what the engine commanded; sometimes unavailable or switched off by the board.
-
-    A flaky board switches off often enough for restarts to run into the start limit.
-    """
-    if _chance(rng, 0.002):
+def _observed_boiler(rng: random.Random, state: EngineState, regime: Regime) -> bool | None:
+    """Mostly what the engine commanded; sometimes unavailable or switched off by the board."""
+    if _chance(rng, regime.board_unavailable):
         return None
-    if _chance(rng, 0.02 if flaky else 0.005):
+    if _chance(rng, regime.board_off):
         return False
     return state.boiler_on
 
@@ -101,18 +170,10 @@ def _random_controls(rng: random.Random, paused: bool) -> Controls:  # noqa: FBT
     )
 
 
-def _check_start(now: datetime, history: History, controls: Controls, *, open_valve: bool) -> None:
-    recent = [start for start in history.starts if now - start < GUARD.start_window]
-    assert len(recent) < GUARD.max_starts
-    assert history.last_stop is None or now - history.last_stop >= GUARD.min_off
-    assert history.lockout_end is None or now >= history.lockout_end
-    assert not controls.paused
-    assert open_valve
-
-
-@pytest.mark.parametrize("seed", range(6))
+@pytest.mark.parametrize("seed", range(9))
 def test_limits_hold_over_two_noisy_days(seed: int) -> None:
     rng = random.Random(seed)  # noqa: S311 - reproducible test data, not cryptography
+    regime = REGIMES[seed % len(REGIMES)]
     rooms = [
         SimRoom("bedroom", 16.0, sonoff=False, wall=19.0),
         SimRoom("kitchen", 5.5, sonoff=False, wall=20.0),
@@ -121,11 +182,14 @@ def test_limits_hold_over_two_noisy_days(seed: int) -> None:
     state = EngineState()
     history = History()
     paused = False
+    loss_k = LOSSES_K[0]
     now = NOW
     seen: set[ReasonCode] = set()
     for _ in range(STEPS):
         if _chance(rng, 0.002):
             paused = not paused
+        if _chance(rng, 0.003):
+            loss_k = rng.choice(LOSSES_K)
         controls = _random_controls(rng, paused)
         if controls.clear_lockout:
             history.lockout_end = None
@@ -133,7 +197,7 @@ def test_limits_hold_over_two_noisy_days(seed: int) -> None:
             *(sim.snapshot(now) for sim in rooms),
             now=now,
             outdoor=rng.choice([None, -5.0, 0.0, 5.0, 12.0]),
-            boiler_on=_observed_boiler(rng, state, flaky=seed % 2 == 1),
+            boiler_on=_observed_boiler(rng, state, regime),
             complete=not _chance(rng, 0.01),
             taken_at=now - timedelta(minutes=3) if _chance(rng, 0.01) else now,
         )
@@ -154,22 +218,15 @@ def test_limits_hold_over_two_noisy_days(seed: int) -> None:
             assert command.modulation_pct == GUARD.idle_pct
         if paused:
             assert not heat
+        history.observe(
+            now,
+            result,
+            controls,
+            complete=snap.complete,
+            open_valve=any(sim.valve_open for sim in rooms),
+        )
 
-        if heat and history.on_since is None:
-            assert snap.complete
-            _check_start(now, history, controls, open_valve=any(sim.valve_open for sim in rooms))
-            history.starts.append(now)
-            history.on_since = now
-        elif heat:
-            assert history.on_since is not None
-            assert now - history.on_since < GUARD.max_run
-        elif history.on_since is not None:
-            history.last_stop = now
-            history.on_since = None
-            if result.reason.code is ReasonCode.MAX_RUN:
-                history.lockout_end = now + GUARD.lockout
-
-        _move_rooms(rng, rooms, heating=heat)
+        _move_rooms(rng, rooms, regime, heating=heat, loss_k=loss_k)
         now += STEP
 
     assert history.starts, "the scenario should exercise at least one run"

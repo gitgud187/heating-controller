@@ -11,6 +11,7 @@ from custom_components.heating_controller.engine.reasons import ReasonCode
 from sim import scenarios as sc
 from sim.devices import FailsafeCause
 from sim.loop import Sample, SimResult, simulate
+from sim.metrics import find_runs
 
 MINUTE = timedelta(minutes=1)
 
@@ -158,7 +159,11 @@ def test_pause_checks() -> None:
 
 def test_lockout_checks() -> None:
     result = run("clear_lockout")
-    assert failures(everywhere(result, reasons=(ReasonCode.STOP_LOAD,))) == ["no max-run stop"]
+    assert failures(everywhere(result, reasons=(ReasonCode.STOP_LOAD,))) == ["no lockout stop"]
+    stop = next(r for r in find_runs(result.samples) if r.stop == ReasonCode.NO_PROGRESS)
+    moved = edit(result, *at(stop.end - result.scenario.start), heating=True)
+    moved = edit(moved, *at(sc.CLEAR_AT + MINUTE), heating=False, reasons=(ReasonCode.MAX_RUN,))
+    assert failures(moved)[0].startswith("first lockout at")
     clear = sc.CLEAR_AT
     no_restart = edit(result, clear, result.scenario.duration, heating=False)
     assert failures(no_restart) == ["no start after clearing the lockout"]

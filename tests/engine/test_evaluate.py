@@ -8,6 +8,7 @@ import pytest
 from custom_components.heating_controller.engine.config import EngineConfig
 from custom_components.heating_controller.engine.demand import RoomStatus
 from custom_components.heating_controller.engine.evaluate import Command, Evaluation, evaluate
+from custom_components.heating_controller.engine.guard import LoadSample
 from custom_components.heating_controller.engine.model import Controls
 from custom_components.heating_controller.engine.reasons import ReasonCode
 from custom_components.heating_controller.engine.state import EngineState
@@ -171,11 +172,30 @@ def test_no_open_valve_stops_a_run() -> None:
     assert result.state.no_open_valve_since is None
 
 
-def test_max_run_locks_out_for_an_hour_until_cleared() -> None:
+def warming(k_per_hour: float, until: timedelta | None = None) -> Rooms:
+    """The bedroom from 18 °C towards 21 °C at a steady rate, flat after `until`."""
+
+    def rooms(at: datetime) -> tuple[RoomSnapshot, ...]:
+        elapsed = at - NOW if until is None else min(at - NOW, until)
+        return (room("bedroom", area_m2=10.0, wall=18.0 + k_per_hour * (elapsed / HOUR), at=at),)
+
+    return rooms
+
+
+HOUR = timedelta(hours=1)
+
+
+def test_stalled_run_locks_out_for_an_hour_until_cleared() -> None:
     run = Run()
-    run.run(cold, 180)
+    running = run.run(cold, 180)
+    assert running.command.heat  # type: ignore[union-attr]  # boiler available
+    assert len(running.state.run_loads) == 71
     stopped = run.step(cold)
-    assert stopped.reason.code is ReasonCode.MAX_RUN
+    assert stopped.reason.code is ReasonCode.NO_PROGRESS
+    assert stopped.reason.message == (
+        "stopped: ran 3 h, load not falling (10.0 → 10.0 m²·K in 60 min), locked out until 16:00"
+    )
+    assert stopped.state.run_loads == ()
     lockout = stopped.state.lockout_until
     assert lockout == run.now - timedelta(minutes=1) + timedelta(hours=1)
     waiting = run.run(cold, 30)
@@ -183,6 +203,40 @@ def test_max_run_locks_out_for_an_hour_until_cleared() -> None:
     cleared = run.step(cold, Controls(clear_lockout=True))
     assert cleared.command.heat  # type: ignore[union-attr]  # boiler available
     assert cleared.state.lockout_until is None
+    assert cleared.state.run_loads == (LoadSample(cleared.state.on_since, 10.0),)  # type: ignore[arg-type]  # on since the start
+
+
+def _first_stop(run: Run, rooms: Rooms, limit: int) -> tuple[int, Evaluation]:
+    for minute in range(limit):
+        result = run.step(rooms)
+        if not result.command.heat:  # type: ignore[union-attr]  # boiler available
+            return minute, result
+    msg = "no stop"
+    raise AssertionError(msg)
+
+
+def test_progress_keeps_a_run_going_until_the_absolute_limit() -> None:
+    minute, stopped = _first_stop(Run(), warming(0.1), 400)
+    assert minute == 360
+    assert stopped.reason.code is ReasonCode.MAX_RUN
+    assert stopped.reason.message == "stopped: ran 6 h, locked out until 19:00"
+
+
+def test_a_stall_after_progress_is_caught_when_it_happens() -> None:
+    minute, stopped = _first_stop(Run(), warming(0.2, until=timedelta(minutes=225)), 400)
+    assert 255 < minute <= 271
+    assert stopped.reason.code is ReasonCode.NO_PROGRESS
+    assert stopped.reason.message.startswith("stopped: ran 4 h ")
+
+
+def test_a_restart_gap_delays_the_progress_verdict() -> None:
+    run = Run()
+    run.run(cold, 106)  # samples up to minute 105
+    run.state = EngineState.from_dict(run.state.to_dict())
+    run.now += timedelta(minutes=20)  # Home Assistant down, the board kept the boiler on
+    minute, stopped = _first_stop(run, cold, 100)
+    assert minute + 126 == 186  # no sample 60 to 70 min old from minute 180 to 185
+    assert stopped.reason.code is ReasonCode.NO_PROGRESS
 
 
 def test_all_rooms_excluded_stops_immediately() -> None:
@@ -221,6 +275,7 @@ def test_a_stop_by_the_board_starts_the_minimum_off() -> None:
     assert result.reason.code is ReasonCode.MIN_OFF
     assert result.command == Command(heat=False, modulation_pct=CONFIG.guard.idle_pct)
     assert result.state.on_since is None
+    assert result.state.run_loads == ()
     assert result.state.last_off == stopped_at
     waiting = run.run(cold, 7)
     assert waiting.reason.code is ReasonCode.MIN_OFF

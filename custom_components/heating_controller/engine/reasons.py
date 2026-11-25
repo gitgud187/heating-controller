@@ -29,6 +29,7 @@ class ReasonCode(StrEnum):
     PAUSED = "paused"
     LOCKOUT = "lockout"
     MAX_RUN = "max_run"
+    NO_PROGRESS = "no_progress"
     NO_OPEN_VALVE = "no_open_valve"
     MIN_OFF = "min_off"
     START_LIMIT = "start_limit"
@@ -47,6 +48,14 @@ class Reason:
 def minutes(duration: timedelta) -> int:
     """Whole minutes, rounded up, for messages ("3 min left")."""
     return max(0, math.ceil(duration.total_seconds() / 60))
+
+
+def duration(span: timedelta) -> str:
+    """Hours and minutes for messages ("3 h 12 min", "3 h", "45 min"), minutes rounded up."""
+    hours, rest = divmod(minutes(span), 60)
+    if not hours:
+        return f"{rest} min"
+    return f"{hours} h {rest} min" if rest else f"{hours} h"
 
 
 def clock(moment: datetime) -> str:

@@ -3,10 +3,11 @@
 from __future__ import annotations
 
 from dataclasses import dataclass, field
-from datetime import datetime
+from datetime import datetime, timedelta
 from typing import TYPE_CHECKING
 
 from .demand import RoomState
+from .guard import LoadSample
 
 if TYPE_CHECKING:
     from collections.abc import Mapping
@@ -22,6 +23,8 @@ class EngineState:
     Everything the engine remembers between evaluations.
 
     `on_since` is None while the boiler is off. `modulation_pct` is the last value written.
+    `run_loads` is the sampled load of the current run for the guard's progress check; it is
+    empty while the boiler is off and stored as seconds since `on_since`.
     """
 
     on_since: datetime | None = None
@@ -29,6 +32,7 @@ class EngineState:
     starts: tuple[datetime, ...] = ()
     lockout_until: datetime | None = None
     no_open_valve_since: datetime | None = None
+    run_loads: tuple[LoadSample, ...] = ()
     integral_pct: float = 0.0
     modulation_pct: int | None = None
     last_evaluated: datetime | None = None
@@ -49,6 +53,7 @@ class EngineState:
             "starts": [start.isoformat() for start in self.starts],
             "lockout_until": _iso(self.lockout_until),
             "no_open_valve_since": _iso(self.no_open_valve_since),
+            "run_loads": _run_loads_to_list(self.run_loads, self.on_since),
             "integral_pct": self.integral_pct,
             "modulation_pct": self.modulation_pct,
             "last_evaluated": _iso(self.last_evaluated),
@@ -77,12 +82,14 @@ class EngineState:
         ):
             msg = f"unsupported state version: {version!r}"
             raise ValueError(msg)
+        on_since = _opt_datetime(data.get("on_since"))
         return cls(
-            on_since=_opt_datetime(data.get("on_since")),
+            on_since=on_since,
             last_off=_opt_datetime(data.get("last_off")),
             starts=tuple(_datetime(item) for item in _list(data.get("starts", []))),
             lockout_until=_opt_datetime(data.get("lockout_until")),
             no_open_valve_since=_opt_datetime(data.get("no_open_valve_since")),
+            run_loads=_run_loads(data.get("run_loads", []), on_since),
             integral_pct=_float(data.get("integral_pct", 0.0)),
             modulation_pct=_opt_int(data.get("modulation_pct")),
             last_evaluated=_opt_datetime(data.get("last_evaluated")),
@@ -92,6 +99,29 @@ class EngineState:
                 for name, value in _mapping(data.get("starving_since", {})).items()
             },
         )
+
+
+def _run_loads_to_list(
+    samples: tuple[LoadSample, ...], on_since: datetime | None
+) -> list[list[float]]:
+    if on_since is None:
+        return []
+    return [[(sample.at - on_since).total_seconds(), sample.load_m2k] for sample in samples]
+
+
+def _run_loads(value: object, on_since: datetime | None) -> tuple[LoadSample, ...]:
+    """Read [seconds since on_since, load] pairs; drop them without a run to anchor them."""
+    samples = []
+    for item in _list(value):
+        pair = _list(item)
+        if len(pair) != 2:  # noqa: PLR2004 - a [seconds, load] pair
+            raise _invalid(item, "a [seconds, load] pair")
+        samples.append((_float(pair[0]), _float(pair[1])))
+    if on_since is None:
+        return ()
+    return tuple(
+        LoadSample(on_since + timedelta(seconds=seconds), load) for seconds, load in samples
+    )
 
 
 def _iso(value: datetime | None) -> str | None:

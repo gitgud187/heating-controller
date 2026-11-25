@@ -120,7 +120,8 @@ class Criteria:
     Which spec 13 criteria a scenario must meet.
 
     `error_rooms`: rooms whose median error is checked (None: every room). `overheat_rooms`
-    likewise. A check set to None is skipped.
+    likewise. A check set to None is skipped. `allowed_lockouts`: the run-limit stops
+    (max run, no progress) the scenario provokes on purpose.
     """
 
     max_median_error_k: float | None = 0.3
@@ -132,7 +133,7 @@ class Criteria:
     settle_after_change: timedelta = timedelta(hours=2)
     min_run: timedelta = timedelta(minutes=10)
     min_distinct_pct: int | None = 5
-    allow_max_run: bool = False
+    allowed_lockouts: frozenset[ReasonCode] = frozenset()
 
 
 type Check = Callable[["SimResult"], list[str]]

@@ -12,7 +12,12 @@ from custom_components.heating_controller.engine.boiler import (
 )
 from custom_components.heating_controller.engine.config import BoilerConfig, EngineConfig
 from custom_components.heating_controller.engine.demand import RoomState, assess_room
-from custom_components.heating_controller.engine.reasons import ReasonCode, clock, minutes
+from custom_components.heating_controller.engine.reasons import (
+    ReasonCode,
+    clock,
+    duration,
+    minutes,
+)
 
 from .factories import NOW, moes, room
 
@@ -139,6 +144,9 @@ def test_all_rooms_excluded_wins_over_everything() -> None:
 
 
 def test_reason_helpers() -> None:
+    assert duration(timedelta(minutes=45)) == "45 min"
+    assert duration(timedelta(hours=3)) == "3 h"
+    assert duration(timedelta(hours=3, minutes=11, seconds=1)) == "3 h 12 min"
     assert minutes(timedelta(seconds=61)) == 2
     assert minutes(timedelta(seconds=-5)) == 0
     assert clock(NOW) == "12:00"

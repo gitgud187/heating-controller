@@ -10,7 +10,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import TYPE_CHECKING
 
-from .reasons import Reason, ReasonCode, clock, minutes
+from .reasons import Reason, ReasonCode, clock, duration, minutes
 
 if TYPE_CHECKING:
     from collections.abc import Iterable
@@ -20,13 +20,27 @@ if TYPE_CHECKING:
 
 
 @dataclass(frozen=True, slots=True)
+class LoadSample:
+    """The load at one evaluation of the current run."""
+
+    at: datetime
+    load_m2k: float
+
+
+@dataclass(frozen=True, slots=True)
 class GuardInput:
-    """The core's wish plus the history and inputs the limits need."""
+    """
+    The core's wish plus the history and inputs the limits need.
+
+    `run_loads` is the sampled load of the current run, oldest first (empty while off).
+    """
 
     now: datetime
     heat: bool
     modulation_pct: int
+    load_m2k: float
     on_since: datetime | None
+    run_loads: tuple[LoadSample, ...]
     last_off: datetime | None
     starts: tuple[datetime, ...]
     lockout_until: datetime | None
@@ -40,13 +54,18 @@ class GuardInput:
 
 @dataclass(frozen=True, slots=True)
 class GuardResult:
-    """The command and the guard state. `reason` is set when the guard overrode the core."""
+    """
+    The command and the guard state. `reason` is set when the guard overrode the core.
+
+    `run_loads` is the load history to keep: empty unless the boiler stays or goes on.
+    """
 
     heat: bool
     modulation_pct: int
     reason: Reason | None
     lockout_until: datetime | None
     no_open_valve_since: datetime | None
+    run_loads: tuple[LoadSample, ...]
 
 
 def recent_starts(
@@ -54,6 +73,34 @@ def recent_starts(
 ) -> tuple[datetime, ...]:
     """Return the starts inside the rolling window ending now."""
     return tuple(start for start in starts if now - start < window)
+
+
+def record_load(
+    samples: tuple[LoadSample, ...], now: datetime, load_m2k: float, config: GuardConfig
+) -> tuple[LoadSample, ...]:
+    """
+    Add the current load to the run's history and drop what the progress check no longer needs.
+
+    At most one sample per `load_sample_interval`; samples older than the progress window plus
+    the slack are dropped, so the history stays bounded.
+    """
+    if not samples or now - samples[-1].at >= config.load_sample_interval:
+        samples = (*samples, LoadSample(now, round(load_m2k, config.load_sample_decimals)))
+    keep = config.progress_window + config.load_history_slack
+    return tuple(sample for sample in samples if now - sample.at <= keep)
+
+
+def progress_reference(
+    samples: tuple[LoadSample, ...], now: datetime, config: GuardConfig
+) -> LoadSample | None:
+    """
+    Return the newest sample at least the progress window old.
+
+    None when there is none, or when it is older than the window plus the slack (a long
+    restart gap): the check then waits until the history covers a window again.
+    """
+    window, keep = config.progress_window, config.progress_window + config.load_history_slack
+    return next((sample for sample in reversed(samples) if window <= now - sample.at <= keep), None)
 
 
 def apply_guard(guard: GuardInput, config: GuardConfig) -> GuardResult:
@@ -68,14 +115,12 @@ def apply_guard(guard: GuardInput, config: GuardConfig) -> GuardResult:
         return _result(guard, config, reason=veto, lockout=lockout, no_open_since=None)
 
     no_open_since = None if guard.any_valve_open else guard.no_open_valve_since or guard.now
-    ran = guard.now - guard.on_since
     reason: Reason | None
-    if ran >= config.max_run:
+    limit = _run_limit(guard, guard.now - guard.on_since, config)
+    if limit is not None:
+        code, what = limit
         lockout = guard.now + config.lockout
-        reason = Reason(
-            ReasonCode.MAX_RUN,
-            f"stopped: ran {minutes(ran)} min, locked out until {clock(lockout)}",
-        )
+        reason = Reason(code, f"stopped: {what}, locked out until {clock(lockout)}")
     else:
         reason = _running_stop(guard, lockout, no_open_since, config)
     return _result(
@@ -85,6 +130,29 @@ def apply_guard(guard: GuardInput, config: GuardConfig) -> GuardResult:
         lockout=lockout,
         no_open_since=no_open_since if reason is None else None,
     )
+
+
+def _run_limit(
+    guard: GuardInput, ran: timedelta, config: GuardConfig
+) -> tuple[ReasonCode, str] | None:
+    """
+    Limit a run's length: absolute at `max_run`, earlier when the load stops falling.
+
+    Without a sample a full window old (a fresh run, or a restart gap) there is no verdict
+    on progress; `max_run` still applies.
+    """
+    if ran >= config.max_run:
+        return ReasonCode.MAX_RUN, f"ran {duration(ran)}"
+    if ran < config.progress_check_after:
+        return None
+    reference = progress_reference(guard.run_loads, guard.now, config)
+    if reference is None or guard.load_m2k < reference.load_m2k - config.progress_margin_m2k:
+        return None
+    trend = (
+        f"{reference.load_m2k:.1f} → {guard.load_m2k:.1f} m²·K "
+        f"in {minutes(guard.now - reference.at)} min"
+    )
+    return ReasonCode.NO_PROGRESS, f"ran {duration(ran)}, load not falling ({trend})"
 
 
 def _running_stop(
@@ -140,10 +208,12 @@ def _result(
 ) -> GuardResult:
     heat = guard.heat and reason is None
     pct = max(config.min_pct, min(config.max_pct, guard.modulation_pct))
+    history = guard.run_loads if guard.on_since is not None else ()
     return GuardResult(
         heat=heat,
         modulation_pct=pct if heat else config.idle_pct,
         reason=reason,
         lockout_until=lockout,
         no_open_valve_since=no_open_since,
+        run_loads=record_load(history, guard.now, guard.load_m2k, config) if heat else (),
     )

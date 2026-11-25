@@ -13,8 +13,9 @@ It reads the rooms (thermostats, wall sensors, radiator valves) and never comman
   on its own, but a long-waiting room eventually will.
 - **Weather compensation with room influence.** Output = a base from the outdoor temperature plus a
   PI correction on the area-weighted room error.
-- **A guard that always wins.** Starts per hour, minimum off time, maximum run with lockout, stop when
-  no valve is open, output limits, no start on missing data. Separate from the logic, separately tested.
+- **A guard that always wins.** Starts per hour, minimum off time, a lockout for runs whose load
+  stops falling after 3 hours and for any run at 6 hours, stop when no valve is open, output limits,
+  no start on missing data. Separate from the logic, separately tested.
 - **Fails closed.** A room it cannot see is not a reason to heat. A heartbeat lets the boiler board
   switch off on its own if the integration stops.
 - **Explains itself.** Every decision carries a reason ("waiting: minimum off 3 min left").

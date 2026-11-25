@@ -32,11 +32,13 @@ SAFETY_STOPS = frozenset(
         ReasonCode.PAUSED,
         ReasonCode.LOCKOUT,
         ReasonCode.MAX_RUN,
+        ReasonCode.NO_PROGRESS,
         ReasonCode.NO_OPEN_VALVE,
         ReasonCode.ALL_ROOMS_EXCLUDED,
         ReasonCode.BOILER_UNAVAILABLE,
     }
 )
+LOCKOUT_STOPS = frozenset({ReasonCode.MAX_RUN, ReasonCode.NO_PROGRESS})
 
 
 @dataclass(frozen=True, slots=True)
@@ -243,10 +245,10 @@ def guard_limit_failures(result: SimResult) -> list[str]:  # noqa: PLR0912 - one
         following = runs[index + 1] if index + 1 < len(runs) else None
         if run.duration > guard.max_run:
             failures.append(f"run from {run.start:%H:%M} lasted {run.duration / MINUTE:.0f} min")
-        if run.stop == ReasonCode.MAX_RUN and following is not None:
+        if run.stop in LOCKOUT_STOPS and following is not None:
             cleared = any(run.end <= clear <= following.start for clear in clears)
             if following.start - run.end < guard.lockout and not cleared:
-                failures.append(f"start at {following.start:%H:%M} inside a max-run lockout")
+                failures.append(f"start at {following.start:%H:%M} inside a {run.stop} lockout")
     by_time = {sample.time: sample for sample in samples}
     for run in runs:
         sample = by_time[run.start]
@@ -293,8 +295,11 @@ def criteria_failures(result: SimResult, metrics: Metrics) -> list[str]:
         and metrics.distinct_pct < criteria.min_distinct_pct
     ):
         failures.append(f"output took only {metrics.distinct_pct} values")
-    if not criteria.allow_max_run and ReasonCode.MAX_RUN in metrics.guard_stops:
-        failures.append("max-run lockout in a normal run")
+    failures.extend(
+        f"{code} lockout in a normal run"
+        for code in sorted(LOCKOUT_STOPS - criteria.allowed_lockouts)
+        if code in metrics.guard_stops
+    )
     return failures
 
 
