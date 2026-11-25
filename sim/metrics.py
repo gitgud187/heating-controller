@@ -250,6 +250,7 @@ def guard_limit_failures(result: SimResult) -> list[str]:  # noqa: PLR0912 - one
             if following.start - run.end < guard.lockout and not cleared:
                 failures.append(f"start at {following.start:%H:%M} inside a {run.stop} lockout")
     by_time = {sample.time: sample for sample in samples}
+    failures.extend(progress_failures(result, runs, by_time))
     for run in runs:
         sample = by_time[run.start]
         if sample.paused:
@@ -267,6 +268,36 @@ def guard_limit_failures(result: SimResult) -> list[str]:  # noqa: PLR0912 - one
             failures.append(f"heating while paused at {sample.time:%H:%M}")
             break
     return failures
+
+
+def progress_failures(
+    result: SimResult, runs: Sequence[Run], by_time: dict[datetime, Sample]
+) -> list[str]:
+    """
+    Find a run that went on past the progress check although its load had not fallen.
+
+    Judged only where the record has an evaluation exactly one window earlier (inside the
+    same run, as the check starts later than one window); that is the sample the guard
+    compares with, rounded as the guard stores it.
+    """
+    guard = result.scenario.config.guard
+    for run in runs:
+        moment = run.start + guard.progress_check_after
+        while moment < run.end:
+            sample, earlier = by_time[moment], by_time.get(moment - guard.progress_window)
+            moment += MINUTE
+            if not sample.evaluated or earlier is None or not earlier.evaluated:
+                continue
+            reference = round(earlier.load_m2k, guard.load_sample_decimals)
+            if sample.load_m2k >= reference - guard.progress_margin_m2k:
+                window = guard.progress_window / MINUTE
+                return [
+                    (
+                        f"run from {run.start:%H:%M} went on at {sample.time:%H:%M}: load "
+                        f"{reference:.1f} → {sample.load_m2k:.1f} m²·K in {window:.0f} min"
+                    )
+                ]
+    return []
 
 
 def criteria_failures(result: SimResult, metrics: Metrics) -> list[str]:

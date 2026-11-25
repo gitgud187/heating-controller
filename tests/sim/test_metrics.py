@@ -117,9 +117,31 @@ def test_too_many_starts_and_short_off() -> None:
 
 
 def test_run_too_long() -> None:
-    res = result("#" * 362 + ".")
+    res = result("#" * 362 + ".", load_m2k=0.0)
+    res = replace(res, samples=tuple(_falling(res.samples)))
     assert [f for f in guard_limit_failures(res) if "lasted" in f] == [
         f"run from {BASE.start:%H:%M} lasted 362 min"
+    ]
+
+
+def _falling(samples: tuple[Sample, ...], per_minute: float = 0.01) -> list[Sample]:
+    """Give the record a load that falls by `per_minute` from 10 m²·K."""
+    return [replace(s, load_m2k=10.0 - per_minute * index) for index, s in enumerate(samples)]
+
+
+def test_progress_failures() -> None:
+    falling = result("#" * 240)
+    falling = replace(falling, samples=tuple(_falling(falling.samples)))
+    assert guard_limit_failures(falling) == []
+    stalled = result("#" * 240, load_m2k=5.0)
+    assert guard_limit_failures(stalled) == [
+        f"run from {BASE.start:%H:%M} went on at 21:00: load 5.0 → 5.0 m²·K in 60 min"
+    ]
+    # no evaluation one window before 21:00 or at 21:01: judged from 21:02
+    gap = with_sample(stalled, 120, evaluated=False)
+    gap = with_sample(gap, 181, evaluated=False)
+    assert guard_limit_failures(gap) == [
+        f"run from {BASE.start:%H:%M} went on at 21:02: load 5.0 → 5.0 m²·K in 60 min"
     ]
 
 
