@@ -102,7 +102,7 @@ def assess_room(
 ) -> RoomAssessment:
     """Assess one room against its previous state."""
     stale_after = config.validity.stale_after
-    valve = assess_valve(room.valve, now, stale_after, config.valves)
+    valve = assess_valve(room.valve, config.valves)
     wall = fresh_value(room.wall, now, stale_after)
     target = fresh_value(room.thermostat.target, now, stale_after)
 

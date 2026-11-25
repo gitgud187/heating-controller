@@ -1,4 +1,10 @@
-"""Valve profiles: whether a valve is open, healthy, or has no data (spec 6.2)."""
+"""
+Valve profiles: whether a valve is open, healthy, or has no data (spec 6.2).
+
+Valve data has no age limit. Radiator valves report only on change, often less than once an
+hour, so an old value is normal. Data is missing only when the entity is unavailable or unknown
+(value None); the Zigbee coordinator's own availability check decides when a device is gone.
+"""
 
 from __future__ import annotations
 
@@ -6,11 +12,8 @@ from dataclasses import dataclass
 from typing import TYPE_CHECKING
 
 from .model import MoesValve, SonoffValve, Valve
-from .validity import fresh_value
 
 if TYPE_CHECKING:
-    from datetime import datetime, timedelta
-
     from .config import ValveConfig
 
 
@@ -23,20 +26,16 @@ class ValveAssessment:
     data_missing: bool
 
 
-def assess_valve(
-    valve: Valve, now: datetime, stale_after: timedelta, config: ValveConfig
-) -> ValveAssessment:
+def assess_valve(valve: Valve, config: ValveConfig) -> ValveAssessment:
     """Apply the valve's profile."""
     if isinstance(valve, MoesValve):
-        return _assess_moes(valve, now, stale_after, config)
-    return _assess_sonoff(valve, now, stale_after, config)
+        return _assess_moes(valve, config)
+    return _assess_sonoff(valve, config)
 
 
-def _assess_moes(
-    valve: MoesValve, now: datetime, stale_after: timedelta, config: ValveConfig
-) -> ValveAssessment:
-    heating = fresh_value(valve.heating, now, stale_after)
-    position = fresh_value(valve.position, now, stale_after)
+def _assess_moes(valve: MoesValve, config: ValveConfig) -> ValveAssessment:
+    heating = valve.heating.value
+    position = valve.position.value
     position_open = position is not None and position > config.moes_open_position_pct
     return ValveAssessment(
         open=position_open or heating is True,
@@ -46,10 +45,8 @@ def _assess_moes(
     )
 
 
-def _assess_sonoff(
-    valve: SonoffValve, now: datetime, stale_after: timedelta, config: ValveConfig
-) -> ValveAssessment:
-    heating = fresh_value(valve.heating, now, stale_after)
+def _assess_sonoff(valve: SonoffValve, config: ValveConfig) -> ValveAssessment:
+    heating = valve.heating.value
     return ValveAssessment(
         open=heating is True,
         healthy=valve.system_mode == config.sonoff_healthy_system_mode

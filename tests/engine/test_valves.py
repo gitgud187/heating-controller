@@ -13,12 +13,11 @@ from .factories import NOW, moes, sonoff
 if TYPE_CHECKING:
     from custom_components.heating_controller.engine.model import Valve
 
-STALE = timedelta(minutes=20)
-OLD = NOW - timedelta(minutes=30)
+OLD = NOW - timedelta(hours=6)
 
 
 def assess(valve: Valve) -> ValveAssessment:
-    return assess_valve(valve, NOW, STALE, ValveConfig())
+    return assess_valve(valve, ValveConfig())
 
 
 @pytest.mark.parametrize(
@@ -44,9 +43,10 @@ def test_moes_open_and_missing(
     assert result.data_missing is missing
 
 
-def test_moes_stale_data_counts_as_missing() -> None:
-    result = assess(moes(at=OLD))
-    assert result == ValveAssessment(open=False, healthy=True, data_missing=True)
+def test_moes_old_data_is_still_trusted() -> None:
+    # Valves report only on change; hours-old data is normal, not missing.
+    result = assess(moes(heating=False, position=40.0, at=OLD))
+    assert result == ValveAssessment(open=True, healthy=True, data_missing=False)
 
 
 @pytest.mark.parametrize(
@@ -80,8 +80,9 @@ def test_sonoff_open_and_missing(
     assert result.data_missing is missing
 
 
-def test_sonoff_stale_hvac_action_counts_as_missing() -> None:
-    assert assess(sonoff(at=OLD)).data_missing
+def test_sonoff_old_hvac_action_is_still_trusted() -> None:
+    assert not assess(sonoff(heating=True, at=OLD)).data_missing
+    assert assess(sonoff(heating=True, at=OLD)).open
 
 
 def test_sonoff_healthy_defaults() -> None:
