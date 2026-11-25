@@ -36,6 +36,8 @@ if TYPE_CHECKING:
     from custom_components.heating_controller.engine.demand import RoomAssessment
 
 _HOUR = timedelta(hours=1)
+# Scenarios that provoke run-limit lockouts on purpose; their errors say nothing about tuning.
+LOCKOUT_SCENARIOS = frozenset({"clear_lockout", "undersized_radiator"})
 SIGNED_STATUSES = frozenset({RoomStatus.SERVED, RoomStatus.WAITING_FOR_VALVE, RoomStatus.SATISFIED})
 
 
@@ -174,31 +176,31 @@ def _mean(values: Iterable[float], digits: int) -> str:
 def summarise(variant: Variant, reports: Sequence[tuple[str, Report]]) -> str:
     """Return one table row."""
     failed = sum(1 for _, report in reports if not report.passed)
-    lockouts = sum(
-        1
-        for name, report in reports
-        if name != "clear_lockout" and ReasonCode.MAX_RUN in report.metrics.guard_stops
+    normal = [report for name, report in reports if name not in LOCKOUT_SCENARIOS]
+    max_run, no_progress = (
+        sum(1 for report in normal if code in report.metrics.guard_stops)
+        for code in (ReasonCode.MAX_RUN, ReasonCode.NO_PROGRESS)
     )
     errors = sorted(
-        error
-        for name, report in reports
-        if name != "clear_lockout" and (error := report.metrics.worst_median_error_k) is not None
+        error for report in normal if (error := report.metrics.worst_median_error_k) is not None
     )
     p90 = f"{errors[int(0.9 * len(errors))]:.2f}" if errors else "-"
     daily = [r.metrics.starts for name, r in reports if name in {"cold_night", "mild_day"}]
     cold = [r.metrics for name, r in reports if name == "cold_night"]
     overheat = max(report.metrics.worst_overheat_min for _, report in reports)
     return (
-        f"| {variant.name} | {failed}/{len(reports)} | {lockouts} | {_mean(errors, 3)} | {p90} | "
+        f"| {variant.name} | {failed}/{len(reports)} | {max_run} | {no_progress} | "
+        f"{_mean(errors, 3)} | {p90} | "
         f"{_mean(daily, 1)} | {_mean((m.mean_pct_on or 0.0 for m in cold), 0)} | "
         f"{_mean((m.distinct_pct for m in cold), 0)} | {overheat:.0f} |"
     )
 
 
 HEADER = (
-    "| variant | failed runs | max-run lockouts | mean worst median error K | p90 K "
-    "| starts/day | cold mean % | cold levels | worst overheat min |\n"
-    "|---|---|---|---|---|---|---|---|---|"
+    "| variant | failed runs | max-run lockouts | no-progress lockouts "
+    "| mean worst median error K | p90 K | starts/day | cold mean % | cold levels "
+    "| worst overheat min |\n"
+    "|---|---|---|---|---|---|---|---|---|---|"
 )
 
 
