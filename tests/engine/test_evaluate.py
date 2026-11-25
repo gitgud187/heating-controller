@@ -153,39 +153,12 @@ def test_boiler_unavailable_commands_nothing() -> None:
     assert result.state.modulation_pct is None
 
 
-def test_run_now_runs_30_min_regardless_of_load() -> None:
-    run = Run()
-    first = run.step(warm_open, Controls(run_now=True))
-    assert first.reason.code is ReasonCode.RUN_NOW
-    assert first.state.run_now_until == NOW + timedelta(minutes=30)
-    last = run.run(warm_open, 29)
-    assert last.reason.code is ReasonCode.RUN_NOW
-    after = run.step(warm_open)
-    assert after.reason.code is ReasonCode.STOP_LOAD
-    assert after.state.run_now_until is None
-
-
-def test_run_now_ends_when_the_window_passes_while_running() -> None:
-    run = Run()
-    run.step(cold, Controls(run_now=True))
-    run.run(cold, 29)
-    result = run.step(cold)
-    assert result.reason.code is ReasonCode.RUNNING_LOAD
-    assert result.state.run_now_until is None
-
-
 def test_satisfied_rooms_with_closed_valves_stop_a_run_before_minimum_on() -> None:
     run = Run()
     run.step(cold)
     run.run(warm, 3)
     result = run.step(warm)
     assert result.reason.code is ReasonCode.NO_OPEN_VALVE
-
-
-def test_run_now_is_cancelled_by_a_veto() -> None:
-    result = Run().step(warm, Controls(run_now=True, paused=True))
-    assert not result.command.heat  # type: ignore[union-attr]  # boiler available
-    assert result.state.run_now_until is None
 
 
 def test_no_open_valve_stops_a_run() -> None:

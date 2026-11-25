@@ -156,21 +156,6 @@ def test_pause_checks() -> None:
     assert len(failures(wrong)) == 3
 
 
-def test_run_now_checks() -> None:
-    result = run("run_now")
-    press = at(sc.RUN_NOW_AT)
-    assert failures(edit(result, *press, reasons=(ReasonCode.IDLE,)))[0].startswith("run now not")
-    vetoed = edit(result, *press, heating=False, reasons=(ReasonCode.RUN_NOW, ReasonCode.MIN_OFF))
-    assert failures(vetoed) == []
-    refused = edit(result, *press, heating=False, reasons=(ReasonCode.RUN_NOW,))
-    assert failures(refused) == ["no run after run now: run_now"]
-    after = sc.RUN_NOW_AT + 5 * MINUTE
-    short = edit(
-        result, after, after + timedelta(hours=1), heating=False, reasons=(ReasonCode.STOP_LOAD,)
-    )
-    assert failures(short) == ["run now ended after 5 min (stop_load)"]
-
-
 def test_lockout_checks() -> None:
     result = run("clear_lockout")
     assert failures(everywhere(result, reasons=(ReasonCode.STOP_LOAD,))) == ["no max-run stop"]

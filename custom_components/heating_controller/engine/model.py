@@ -112,4 +112,3 @@ class Controls:
 
     paused: bool = False
     clear_lockout: bool = False
-    run_now: bool = False

@@ -5,7 +5,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import TYPE_CHECKING
 
-from .reasons import Reason, ReasonCode, clock, minutes
+from .reasons import Reason, ReasonCode, minutes
 
 if TYPE_CHECKING:
     from collections.abc import Iterable, Mapping
@@ -23,7 +23,6 @@ class CoreInput:
     on_since: datetime | None
     load_m2k: float
     starving_since: Mapping[str, datetime]
-    run_now_until: datetime | None
     all_excluded: bool
 
 
@@ -64,11 +63,6 @@ def decide(core: CoreInput, config: BoilerConfig) -> CoreDecision:
         return CoreDecision(
             heat=False,
             reason=Reason(ReasonCode.ALL_ROOMS_EXCLUDED, "off: no room has trustworthy data"),
-        )
-    if core.run_now_until is not None and core.now < core.run_now_until:
-        return CoreDecision(
-            heat=True,
-            reason=Reason(ReasonCode.RUN_NOW, f"run now: until {clock(core.run_now_until)}"),
         )
     if core.on_since is None:
         return _decide_off(core, config)

@@ -7,7 +7,7 @@ import pytest
 from custom_components.heating_controller.engine.reasons import ReasonCode
 from sim.loop import simulate
 from sim.metrics import assess, find_runs
-from sim.scenarios import RUN_NOW_AT, SCENARIOS, integration_hung, run_now
+from sim.scenarios import SCENARIOS, integration_hung
 
 
 @pytest.mark.parametrize("name", sorted(SCENARIOS))
@@ -30,11 +30,3 @@ def test_hung_integration_restart_waits_out_the_minimum_off() -> None:
     later = next(run for run in runs if run.start > stop.end)
     assert later.start - stop.end >= timedelta(minutes=8)
     assert any(ReasonCode.EXTERNAL_STOP in sample.reasons for sample in result.samples)
-
-
-def test_run_now_really_runs_in_the_default_scenario() -> None:
-    result = simulate(run_now())
-    press = result.scenario.start + RUN_NOW_AT
-    sample = next(sample for sample in result.samples if sample.time == press)
-    assert sample.heating
-    assert sample.reasons[-1] is ReasonCode.RUN_NOW

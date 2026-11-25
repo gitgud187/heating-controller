@@ -11,7 +11,9 @@ from .demand import RoomState
 if TYPE_CHECKING:
     from collections.abc import Mapping
 
-STATE_VERSION = 1
+STATE_VERSION = 2
+# Version 1 also stored `run_now_until` (the removed run-now button); it is ignored on load.
+READABLE_VERSIONS = frozenset({1, STATE_VERSION})
 
 
 @dataclass(frozen=True, slots=True)
@@ -27,7 +29,6 @@ class EngineState:
     starts: tuple[datetime, ...] = ()
     lockout_until: datetime | None = None
     no_open_valve_since: datetime | None = None
-    run_now_until: datetime | None = None
     integral_pct: float = 0.0
     modulation_pct: int | None = None
     last_evaluated: datetime | None = None
@@ -48,7 +49,6 @@ class EngineState:
             "starts": [start.isoformat() for start in self.starts],
             "lockout_until": _iso(self.lockout_until),
             "no_open_valve_since": _iso(self.no_open_valve_since),
-            "run_now_until": _iso(self.run_now_until),
             "integral_pct": self.integral_pct,
             "modulation_pct": self.modulation_pct,
             "last_evaluated": _iso(self.last_evaluated),
@@ -63,9 +63,19 @@ class EngineState:
 
     @classmethod
     def from_dict(cls, data: Mapping[str, object]) -> EngineState:
-        """Restore from `to_dict` output. Missing keys take defaults; bad data raises ValueError."""
-        if data.get("version") != STATE_VERSION:
-            msg = f"unsupported state version: {data.get('version')!r}"
+        """
+        Restore from `to_dict` output of this or an older version.
+
+        Missing keys take defaults, keys of older versions are ignored; bad data raises
+        ValueError.
+        """
+        version = data.get("version")
+        if (
+            isinstance(version, bool)
+            or not isinstance(version, int)
+            or (version not in READABLE_VERSIONS)
+        ):
+            msg = f"unsupported state version: {version!r}"
             raise ValueError(msg)
         return cls(
             on_since=_opt_datetime(data.get("on_since")),
@@ -73,7 +83,6 @@ class EngineState:
             starts=tuple(_datetime(item) for item in _list(data.get("starts", []))),
             lockout_until=_opt_datetime(data.get("lockout_until")),
             no_open_valve_since=_opt_datetime(data.get("no_open_valve_since")),
-            run_now_until=_opt_datetime(data.get("run_now_until")),
             integral_pct=_float(data.get("integral_pct", 0.0)),
             modulation_pct=_opt_int(data.get("modulation_pct")),
             last_evaluated=_opt_datetime(data.get("last_evaluated")),

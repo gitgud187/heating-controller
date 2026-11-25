@@ -17,7 +17,6 @@ class ReasonCode(StrEnum):
     # core
     START_LOAD = "start_load"
     START_STARVATION = "start_starvation"
-    RUN_NOW = "run_now"
     RUNNING_LOAD = "running_load"
     RUNNING_MIN_ON = "running_min_on"
     STOP_LOAD = "stop_load"

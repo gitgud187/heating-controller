@@ -100,7 +100,6 @@ class PauseEvent:
 class Button(StrEnum):
     """The integration's buttons."""
 
-    RUN_NOW = "run_now"
     CLEAR_LOCKOUT = "clear_lockout"
 
 
@@ -376,7 +375,6 @@ class Simulation:
         controls = Controls(
             paused=active.paused,
             clear_lockout=Button.CLEAR_LOCKOUT in presses,
-            run_now=Button.RUN_NOW in presses,
         )
         state = EngineState.from_dict(self.stored)
         self.restored += 1

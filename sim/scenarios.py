@@ -417,49 +417,6 @@ def pause() -> Scenario:
     )
 
 
-RUN_NOW_AT = _hours(15.5)
-
-
-GUARD_VETOES = frozenset(
-    {
-        ReasonCode.MIN_OFF,
-        ReasonCode.START_LIMIT,
-        ReasonCode.NO_OPEN_VALVE,
-        ReasonCode.LOCKOUT,
-        ReasonCode.PAUSED,
-    }
-)
-
-
-def _run_now_checks(result: SimResult) -> list[str]:
-    """Run now starts a 30 min run unless a guard vetoes it; the guard still applies."""
-    press = result.scenario.start + RUN_NOW_AT
-    sample = _at(result, RUN_NOW_AT)
-    if ReasonCode.RUN_NOW not in sample.reasons:
-        return [f"run now not seen: {sample.reasons}"]
-    if not sample.heating:
-        vetoed = sample.reasons[-1] in GUARD_VETOES
-        return [] if vetoed else [f"no run after run now: {sample.reasons[-1]}"]
-    run = next(run for run in find_runs(result.samples) if run.start <= press < run.end)
-    if run.end - press < timedelta(minutes=30) and not run.guard_stop:
-        return [f"run now ended after {(run.end - press) / MINUTE:.0f} min ({run.stop})"]
-    return []
-
-
-def run_now() -> Scenario:
-    """Run now pressed on a mild afternoon: one run of 30 min, guards still apply."""
-    return Scenario(
-        name="run_now",
-        description="run now pressed at 15:30 on a +10 °C day",
-        start=MIDNIGHT,
-        duration=_hours(18),
-        outdoor=OutdoorProfile(mean_c=10.0, amplitude_k=4.0),
-        house=default_house(),
-        events=(Press(Button.RUN_NOW, RUN_NOW_AT),),
-        checks=(_run_now_checks,),
-    )
-
-
 CLEAR_AT = _hours(3.5)
 HOT = Schedule(points=((0.0, 24.0),))
 
@@ -513,7 +470,6 @@ SCENARIOS: dict[str, Callable[[], Scenario]] = {
         integration_hung,
         ha_restart,
         pause,
-        run_now,
         clear_lockout,
     )
 }

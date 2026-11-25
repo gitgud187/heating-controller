@@ -66,16 +66,12 @@ def evaluate(
     starving = update_starvation(
         state.starving_since, rooms, boiler_on=state.boiler_on, load_m2k=load, now=now
     )
-    run_now_until = (
-        now + config.boiler.run_now_duration if controls.run_now else state.run_now_until
-    )
     core = decide(
         CoreInput(
             now=now,
             on_since=state.on_since,
             load_m2k=load,
             starving_since=starving,
-            run_now_until=run_now_until,
             all_excluded=all(room.excluded for room in rooms),
         ),
         config.boiler,
@@ -135,7 +131,6 @@ def evaluate(
         guarded=guarded,
         rooms=rooms,
         starving=starving,
-        run_now_until=run_now_until,
         modulation=modulation,
         config=config,
     )
@@ -181,7 +176,6 @@ def _next_state(  # noqa: PLR0913 - assembles every part of the new state
     guarded: GuardResult,
     rooms: tuple[RoomAssessment, ...],
     starving: dict[str, datetime],
-    run_now_until: datetime | None,
     modulation: ModulationResult,
     config: EngineConfig,
 ) -> EngineState:
@@ -190,14 +184,12 @@ def _next_state(  # noqa: PLR0913 - assembles every part of the new state
     if heat and not state.boiler_on:
         starts = (*starts, now)
     on_since = (state.on_since or now) if heat else None
-    keep_run_now = heat and run_now_until is not None and now < run_now_until
     return EngineState(
         on_since=on_since,
         last_off=now if state.boiler_on and not heat else state.last_off,
         starts=starts,
         lockout_until=guarded.lockout_until,
         no_open_valve_since=guarded.no_open_valve_since if heat else None,
-        run_now_until=run_now_until if keep_run_now else None,
         integral_pct=modulation.integral_pct,
         modulation_pct=None if command is None else command.modulation_pct,
         last_evaluated=now,
