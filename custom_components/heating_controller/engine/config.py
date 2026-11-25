@@ -104,6 +104,14 @@ class GuardConfig:
 
 
 @dataclass(frozen=True, slots=True)
+class OverheatConfig:
+    """A room is overheating when it stays `above_k` over its target for `after`."""
+
+    above_k: float = 1.5
+    after: timedelta = timedelta(minutes=30)
+
+
+@dataclass(frozen=True, slots=True)
 class EngineConfig:
     """Everything the engine can be tuned with."""
 
@@ -113,3 +121,4 @@ class EngineConfig:
     boiler: BoilerConfig = field(default_factory=BoilerConfig)
     modulation: ModulationConfig = field(default_factory=ModulationConfig)
     guard: GuardConfig = field(default_factory=GuardConfig)
+    overheat: OverheatConfig = field(default_factory=OverheatConfig)

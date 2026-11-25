@@ -34,6 +34,20 @@ Settings → Marketplace → Add from link → `gitgud187/heating-controller`, t
 under Settings → Devices & services. The dashboard card is a separate repository:
 [`heating-controller-card`](https://github.com/gitgud187/heating-controller-card).
 
+## Configuration
+
+1. **Boiler:** the demand switch, the output number (1–100 %), the board's heartbeat button, the
+   outdoor temperature and, optionally, a notification service.
+2. **Rooms:** on the integration page, *Add room* once per room: thermostat, wall sensor, floor
+   area, valve type and valve, then the valve's settings entities (Moes: position and mode;
+   Sonoff: opening and closing degree, smart control, sensor selection).
+3. **Tuning:** *Configure* holds the thresholds and gains. The defaults are a reasonable start.
+
+The controller exposes the boiler state with the reason for it, load, output and its terms,
+starts per hour, run time and lockout; per room its status, demand, valve and load share. A
+**Pause** switch holds the boiler off, **Clear lockout** ends a lockout early. Problems show up
+as repair issues and, if configured, as one notification per episode.
+
 ## Heartbeat
 
 The integration presses a button entity every 60 seconds. The board that drives the boiler should

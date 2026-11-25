@@ -1,0 +1,95 @@
+from __future__ import annotations
+
+from typing import TYPE_CHECKING
+
+from homeassistant.util import dt as dt_util
+
+from custom_components.heating_controller.adapter.snapshot import RoomConfig, SnapshotBuilder
+from custom_components.heating_controller.engine.model import (
+    MoesValve,
+    SonoffValve,
+    ThermostatMode,
+)
+
+from .conftest import BEDROOM, LIVING, PLANT, set_plant
+
+if TYPE_CHECKING:
+    from homeassistant.core import HomeAssistant
+
+
+def builder(hass: HomeAssistant) -> SnapshotBuilder:
+    return SnapshotBuilder(
+        hass, PLANT, [RoomConfig("Bedroom", BEDROOM), RoomConfig("Living", LIVING)]
+    )
+
+
+async def test_maps_both_profiles(hass: HomeAssistant) -> None:
+    set_plant(hass, bedroom_c=18.5, boiler="on")
+    snapshot = builder(hass).build(dt_util.utcnow())
+    assert snapshot.complete
+    assert snapshot.boiler_on is True
+    assert snapshot.outdoor.value == 0.0
+    bedroom, living = snapshot.rooms
+    assert bedroom.wall.value == 18.5
+    assert bedroom.thermostat.mode is ThermostatMode.HEAT
+    assert bedroom.thermostat.target.value == 21.0
+    assert not bedroom.thermostat.window_open
+    assert isinstance(bedroom.valve, MoesValve)
+    assert bedroom.valve.heating.value is True
+    assert bedroom.valve.position.value == 40.0
+    assert (bedroom.valve.preset, bedroom.valve.mode) == ("manual", "comfort")
+    assert isinstance(living.valve, SonoffValve)
+    assert living.valve.heating.value is False
+    assert living.valve.system_mode == "heat"
+    assert living.valve.opening_degree_pct == 100.0
+    assert living.valve.smart_temperature_control == "off"
+    assert living.valve.temperature_sensor_select == "local_temperature"
+
+
+async def test_unavailable_and_missing_entities(hass: HomeAssistant) -> None:
+    set_plant(hass)
+    hass.states.async_set("climate.bedroom_trv", "unavailable")
+    hass.states.async_set("sensor.living_temperature", "unknown")
+    hass.states.async_set("climate.living", "unavailable")
+    hass.states.async_remove("select.living_trv_sensor")
+    hass.states.async_set("number.boiler_power", "unavailable")
+    snapshot = builder(hass).build(dt_util.utcnow())
+    assert not snapshot.complete
+    assert snapshot.boiler_on is None
+    bedroom, living = snapshot.rooms
+    assert bedroom.valve.heating.value is None
+    assert isinstance(bedroom.valve, MoesValve)
+    assert bedroom.valve.preset is None
+    assert living.wall.value is None
+    assert living.thermostat.mode is None
+    assert isinstance(living.valve, SonoffValve)
+    assert living.valve.temperature_sensor_select is None
+
+
+async def test_modes_window_and_odd_values(hass: HomeAssistant) -> None:
+    set_plant(hass)
+    hass.states.async_set("climate.bedroom", "auto", {"temperature": "20.5", "window_state": "on"})
+    hass.states.async_set("climate.living", "off", {"temperature": None})
+    hass.states.async_set("climate.living_trv", "heat", {"hvac_action": None})
+    hass.states.async_set("sensor.outdoor", "n/a")
+    snapshot = builder(hass).build(dt_util.utcnow())
+    bedroom, living = snapshot.rooms
+    assert bedroom.thermostat.mode is ThermostatMode.HEAT
+    assert bedroom.thermostat.target.value == 20.5
+    assert bedroom.thermostat.window_open
+    assert living.thermostat.mode is ThermostatMode.OFF
+    assert living.thermostat.target.value is None
+    assert living.valve.heating.value is None
+    assert snapshot.outdoor.value is None
+    hass.states.async_set("climate.bedroom", "fan_only", {"temperature": True})
+    bedroom = builder(hass).build(dt_util.utcnow()).rooms[0]
+    assert bedroom.thermostat.mode is None
+    assert bedroom.thermostat.target.value is None
+
+
+async def test_watched_entities(hass: HomeAssistant) -> None:
+    watched = builder(hass).watched
+    assert "switch.boiler" in watched
+    assert "sensor.bedroom_temperature" in watched
+    assert "select.living_trv_sensor" in watched
+    assert "sensor.outdoor" not in watched

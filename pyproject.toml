@@ -48,8 +48,12 @@ ignore = [
     "PLR2004", # magic values are the point of a test
     "SLF001",  # tests may look at private state
     "D",       # test names are the documentation
+    "ARG001",  # fixtures requested for their side effect (mocked services)
 ]
 "sim/**" = ["T201"]  # the simulator CLI prints
+# The adapter imports the engine from its parent package. Absolute imports would hard-code
+# the custom_components package path, which Home Assistant does not guarantee.
+"custom_components/heating_controller/adapter/**" = ["TID252"]
 
 [tool.ruff.lint.flake8-pytest-style]
 fixture-parentheses = false

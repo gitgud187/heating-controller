@@ -6,7 +6,7 @@
     "step": {
       "user": {
         "title": "Boiler",
-        "description": "The entities the controller writes and the outdoor temperature it reads.",
+        "description": "The entities the controller writes and the outdoor temperature it reads. Add rooms afterwards from the integration page.",
         "data": {
           "boiler_switch": "Boiler demand switch",
           "power_level": "Boiler output request",
@@ -16,5 +16,157 @@
         }
       }
     }
+  },
+  "config_subentries": {
+    "room": {
+      "initiate_flow": {
+        "user": "Add room",
+        "reconfigure": "Reconfigure room"
+      },
+      "entry_type": "Room",
+      "abort": {
+        "reconfigure_successful": "Room updated."
+      },
+      "step": {
+        "user": {
+          "title": "Room",
+          "description": "The room's thermostat, its wall sensor, its floor area and its radiator valve.",
+          "data": {
+            "name": "Name",
+            "thermostat": "Thermostat",
+            "wall_sensor": "Wall temperature sensor",
+            "area_m2": "Floor area",
+            "valve_profile": "Valve type",
+            "valve": "Radiator valve"
+          }
+        },
+        "reconfigure": {
+          "title": "Room",
+          "description": "The room's thermostat, its wall sensor, its floor area and its radiator valve.",
+          "data": {
+            "thermostat": "Thermostat",
+            "wall_sensor": "Wall temperature sensor",
+            "area_m2": "Floor area",
+            "valve_profile": "Valve type",
+            "valve": "Radiator valve"
+          }
+        },
+        "valve": {
+          "title": "Valve settings",
+          "description": "The entities the controller reads to check that the valve ({profile}) is set up correctly.",
+          "data": {
+            "position_sensor": "Valve position",
+            "mode_select": "Valve mode (comfort/eco)",
+            "opening_number": "Valve opening degree",
+            "closing_number": "Valve closing degree",
+            "smart_switch": "Smart temperature control",
+            "sensor_select": "Temperature sensor selection"
+          }
+        }
+      }
+    }
+  },
+  "options": {
+    "step": {
+      "init": {
+        "title": "Tuning",
+        "description": "Thresholds and gains. The defaults are a reasonable start; change them only with data.",
+        "data": {
+          "start_load_m2k": "Start at load (m²·K)",
+          "stop_load_m2k": "Stop below load (m²·K)",
+          "starvation_after_min": "Start for a waiting room after (min)",
+          "min_on_min": "Minimum run (min)",
+          "needs_heat_k": "Room needs heat below target by (K)",
+          "blocked_after_min": "Room blocked after (min)",
+          "stale_after_min": "Sensor stale after (min)",
+          "min_off_min": "Minimum off between runs (min)",
+          "max_starts": "Starts per hour",
+          "progress_check_after_h": "Check progress after (h)",
+          "progress_window_min": "Progress window (min)",
+          "progress_margin_k": "Progress margin (K)",
+          "max_run_h": "Maximum run (h)",
+          "lockout_min": "Lockout (min)",
+          "no_open_valve_min": "Stop without an open valve after (min)",
+          "kp_pct_per_k": "Proportional gain (%/K)",
+          "ki_pct_per_k_h": "Integral gain (%/(K·h))",
+          "mild_outdoor_c": "Mild outdoor point (°C)",
+          "mild_base_pct": "Output at the mild point (%)",
+          "cold_outdoor_c": "Cold outdoor point (°C)",
+          "cold_base_pct": "Output at the cold point (%)"
+        }
+      }
+    }
+  },
+  "selector": {
+    "valve_profile": {
+      "options": {
+        "moes": "Moes TRV801 (position reported)",
+        "sonoff": "Sonoff TRVZB (open/closed only)"
+      }
+    }
+  },
+  "entity": {
+    "sensor": {
+      "boiler": {
+        "name": "Boiler",
+        "state": {
+          "off": "Off",
+          "on": "On",
+          "locked_out": "Locked out",
+          "paused": "Paused",
+          "unavailable": "Unavailable"
+        }
+      },
+      "load": { "name": "Load" },
+      "modulation": { "name": "Output" },
+      "base": { "name": "Output base" },
+      "proportional": { "name": "Output proportional term" },
+      "integral": { "name": "Output integral term" },
+      "starts_last_hour": { "name": "Starts in the last hour" },
+      "run_time": { "name": "Run time" },
+      "lockout_until": { "name": "Locked out until" },
+      "room_status": {
+        "name": "Status",
+        "state": {
+          "wall_invalid": "Wall sensor invalid",
+          "thermostat_invalid": "Thermostat invalid",
+          "valve_data_missing": "Valve unavailable",
+          "valve_unhealthy": "Valve misconfigured",
+          "thermostat_off": "Thermostat off",
+          "window_open": "Window open",
+          "satisfied": "Satisfied",
+          "served": "Heating",
+          "waiting_for_valve": "Waiting for valve",
+          "blocked": "Blocked"
+        }
+      },
+      "room_load": { "name": "Load share" },
+      "room_error": { "name": "Below target" }
+    },
+    "binary_sensor": {
+      "demand": { "name": "Demand" },
+      "served": { "name": "Served" },
+      "blocked": { "name": "Blocked" },
+      "valve_open": { "name": "Valve open" },
+      "valve_problem": { "name": "Valve problem" },
+      "overheating": { "name": "Overheating" }
+    },
+    "switch": {
+      "pause": { "name": "Pause" }
+    },
+    "button": {
+      "clear_lockout": { "name": "Clear lockout" }
+    }
+  },
+  "issues": {
+    "wall_invalid": { "title": "{room}: wall sensor unavailable", "description": "{message}. The room is left out until the sensor reports again." },
+    "valve_data_missing": { "title": "{room}: valve unavailable", "description": "{message}. Check the valve in Zigbee2MQTT." },
+    "valve_unhealthy": { "title": "{room}: valve misconfigured", "description": "{message}. Check the valve's mode and settings." },
+    "room_blocked": { "title": "{room}: valve stays closed", "description": "{message}. Common causes: open window, child lock, flat battery, calibration." },
+    "room_overheating": { "title": "{room}: overheating", "description": "{message}." },
+    "lockout": { "title": "Boiler locked out", "description": "{message}. Find out why the run did not get anywhere; the lockout ends by itself or with the clear-lockout button." },
+    "no_open_valve": { "title": "Boiler stopped: no open valve", "description": "{message}." },
+    "outdoor_unavailable": { "title": "Outdoor temperature unavailable", "description": "{message}." },
+    "boiler_unavailable": { "title": "Boiler unavailable", "description": "{message}." }
   }
 }
