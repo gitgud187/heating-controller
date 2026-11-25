@@ -1,0 +1,47 @@
+{
+  "outdoor": "sensor.outdoor_temperature",
+  "boiler_switch": "switch.boiler",
+  "boiler_power": "number.boiler_power_level",
+  "rooms": [
+    {
+      "name": "bathroom",
+      "area_m2": 4.7,
+      "profile": "moes",
+      "climate": "climate.bathroom",
+      "wall_sensor": "sensor.bathroom_temperature",
+      "valve": "climate.bathroom_trv",
+      "position_sensor": "sensor.bathroom_trv_position"
+    },
+    {
+      "name": "kitchen",
+      "area_m2": 5.6,
+      "profile": "moes",
+      "climate": "climate.kitchen",
+      "wall_sensor": "sensor.kitchen_temperature",
+      "valve": "climate.kitchen_trv",
+      "position_sensor": "sensor.kitchen_trv_position"
+    },
+    {
+      "name": "bedroom",
+      "area_m2": 16.2,
+      "profile": "moes",
+      "climate": "climate.bedroom",
+      "wall_sensor": "sensor.bedroom_temperature",
+      "valve": "climate.bedroom_trv",
+      "position_sensor": "sensor.bedroom_trv_position",
+      "preset": "climate.bedroom_trv@preset_mode",
+      "mode": "=comfort"
+    },
+    {
+      "name": "living_room",
+      "area_m2": 17.8,
+      "profile": "sonoff",
+      "climate": "climate.living_room",
+      "wall_sensor": "sensor.living_room_temperature",
+      "valve": "climate.living_room_trv",
+      "window": "binary_sensor.living_room_window",
+      "opening_degree": "number.living_room_trv_valve_opening_degree",
+      "closing_degree": "number.living_room_trv_valve_closing_degree"
+    }
+  ]
+}
