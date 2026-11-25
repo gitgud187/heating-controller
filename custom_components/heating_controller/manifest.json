@@ -1,0 +1,14 @@
+{
+  "domain": "heating_controller",
+  "name": "Heating Controller",
+  "codeowners": ["@gitgud187"],
+  "config_flow": true,
+  "dependencies": [],
+  "documentation": "https://github.com/gitgud187/heating-controller",
+  "integration_type": "service",
+  "iot_class": "calculated",
+  "issue_tracker": "https://github.com/gitgud187/heating-controller/issues",
+  "requirements": [],
+  "single_config_entry": true,
+  "version": "0.1.0"
+}

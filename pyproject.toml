@@ -1,0 +1,106 @@
+[project]
+name = "heating-controller"
+version = "0.1.0"
+description = "Home Assistant integration that owns a boiler: when it runs, how hard, and when it must stop."
+readme = "README.md"
+license = "MIT"
+requires-python = ">=3.14.2"
+dependencies = []
+
+[dependency-groups]
+dev = [
+    "homeassistant==2026.11.3",
+    "pytest-homeassistant==2026.11.3",
+    "pytest-cov==7.1.0",
+    "ruff==0.17.6",
+    "mypy==2.4.1",
+    "import-linter==2.17",
+    "pre-commit>=4",
+]
+
+[tool.uv]
+package = false
+
+# --- ruff -------------------------------------------------------------------
+# Same approach as Home Assistant core and ludeeus/integration_blueprint: every rule on,
+# then a short, justified list of exceptions.
+[tool.ruff]
+target-version = "py314"
+line-length = 100
+src = [".", "custom_components"]
+
+[tool.ruff.lint]
+select = ["ALL"]
+ignore = [
+    "ANN401",  # Any is sometimes the honest type at the Home Assistant boundary
+    "COM812",  # conflicts with the formatter
+    "CPY001",  # the MIT licence covers the repo; no per-file headers
+    "D203",    # incompatible with D211
+    "D212",    # incompatible with D213
+    "ISC001",  # conflicts with the formatter
+    "TD002",   # TODO author is not useful in a single-maintainer repo
+    "TD003",   # TODO link is not required
+]
+
+[tool.ruff.lint.per-file-ignores]
+"tests/**" = [
+    "S101",    # assert is how pytest works
+    "PLR2004", # magic values are the point of a test
+    "SLF001",  # tests may look at private state
+    "D",       # test names are the documentation
+]
+"sim/**" = ["T201"]  # the simulator CLI prints
+
+[tool.ruff.lint.flake8-pytest-style]
+fixture-parentheses = false
+
+[tool.ruff.lint.pyupgrade]
+keep-runtime-typing = true
+
+[tool.ruff.lint.mccabe]
+max-complexity = 15
+
+# --- mypy -------------------------------------------------------------------
+[tool.mypy]
+python_version = "3.14"
+strict = true
+warn_unreachable = true
+enable_error_code = ["ignore-without-code", "redundant-expr", "truthy-bool", "possibly-undefined"]
+mypy_path = "."
+explicit_package_bases = true
+packages = ["custom_components.heating_controller", "tests", "sim"]
+
+[[tool.mypy.overrides]]
+module = ["pytest_homeassistant.*"]
+follow_untyped_imports = true
+
+# --- import-linter -----------------------------------------------------------
+# The engine is pure: it must be testable, simulatable and replayable without Home Assistant.
+[tool.importlinter]
+root_packages = ["custom_components"]
+include_external_packages = true
+
+[[tool.importlinter.contracts]]
+name = "Engine does not import Home Assistant"
+type = "forbidden"
+source_modules = ["custom_components.heating_controller.engine"]
+forbidden_modules = ["homeassistant", "custom_components.heating_controller.adapter"]
+
+# --- pytest -----------------------------------------------------------------
+[tool.pytest.ini_options]
+asyncio_mode = "auto"
+asyncio_default_fixture_loop_scope = "function"
+# Let Home Assistant install its httpx alias before respx is imported.
+addopts = "-p no:respx --strict-markers"
+pythonpath = ["."]
+testpaths = ["tests"]
+
+[tool.coverage.run]
+branch = true
+source = ["custom_components/heating_controller"]
+
+[tool.coverage.report]
+fail_under = 95
+show_missing = true
+skip_covered = true
+exclude_also = ["if TYPE_CHECKING:"]
