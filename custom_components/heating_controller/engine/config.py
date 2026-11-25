@@ -10,10 +10,9 @@ from .validity import DEFAULT_STALE_AFTER
 
 @dataclass(frozen=True, slots=True)
 class ValidityConfig:
-    """When inputs and snapshots can be trusted."""
+    """When inputs can be trusted."""
 
     stale_after: timedelta = DEFAULT_STALE_AFTER
-    snapshot_max_age: timedelta = timedelta(minutes=2)
 
 
 @dataclass(frozen=True, slots=True)
@@ -78,6 +77,7 @@ class GuardConfig:
     max_run: timedelta = timedelta(hours=3)
     lockout: timedelta = timedelta(hours=1)
     no_open_valve_after: timedelta = timedelta(minutes=3)
+    snapshot_max_age: timedelta = timedelta(minutes=2)
     min_pct: int = 30
     max_pct: int = 100
     idle_pct: int = 30
