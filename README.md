@@ -44,6 +44,7 @@ switch heating off when it has not been pressed for 5 minutes, and start with he
 uv sync
 uv run pre-commit install --hook-type pre-commit --hook-type pre-push
 uv run pytest --cov
+uv run python -m sim.run --all   # thermal simulator scenarios
 ```
 
 See [AGENTS.md](AGENTS.md) for the rules this repository enforces.

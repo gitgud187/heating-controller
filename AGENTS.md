@@ -56,15 +56,32 @@ word and can only make things safer (stop, veto a start, clamp output).
 
 ## Simulator and replay
 
-Not built yet; these are the intended entry points.
+`sim/` drives the engine without Home Assistant. It may import the engine; nothing under
+`custom_components/` may import `sim` (CI: import-linter).
 
 ```bash
-uv run python -m sim.run --scenario cold_night      # one scenario
-uv run python -m sim.run --all                      # every scenario, asserts the limits
-uv run python -m sim.replay sim/data/export.json    # replay exported Home Assistant history
+uv run python -m sim.run --list                     # the scenarios
+uv run python -m sim.run --scenario cold_night      # one scenario (--csv out.csv for the record)
+uv run python -m sim.run --all                      # every scenario; exits 1 on any failed check
+uv run python -m sim.tune [--quick]                 # compare modulation variants (minutes)
+uv run python -m sim.replay sim/data/history.json --mapping sim/data/mapping.json [--csv out.csv]
 ```
 
-Replay input is real history and stays in `sim/data/`, which is git-ignored.
+- `plant.py` one thermal node per room, radiator lag, boiler with its 30 % floor;
+  `devices.py` sensors (noise, quantisation, report interval/on change), Moes and Sonoff
+  valves, VTherm, the boiler board with its heartbeat and API failsafes; `house.py` the default
+  four-room house (made-up parameters).
+- `loop.py` steps the plant, evaluates every 60 s, persists the engine state through
+  `to_dict`/`from_dict` every step, and records each minute.
+- `metrics.py` checks the spec's guard limits on the physical boiler and the success criteria;
+  `scenarios.py` adds each scenario's own checks. A new safety rule needs a scenario here.
+- `replay.py` reads Home Assistant's REST history export
+  (`/api/history/period/<start>?filter_entity_id=…&minimal_response=false&significant_changes_only=false`)
+  and a mapping file (example: `sim/examples/mapping.example.json`) and prints what the engine
+  would have done next to what the boiler did.
+
+Replay input is real history and stays in `sim/data/`, which is git-ignored; so do real mapping
+files.
 
 ## Privacy
 

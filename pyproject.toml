@@ -77,7 +77,7 @@ follow_untyped_imports = true
 # --- import-linter -----------------------------------------------------------
 # The engine is pure: it must be testable, simulatable and replayable without Home Assistant.
 [tool.importlinter]
-root_packages = ["custom_components"]
+root_packages = ["custom_components", "sim"]
 include_external_packages = true
 
 [[tool.importlinter.contracts]]
@@ -85,6 +85,12 @@ name = "Engine does not import Home Assistant"
 type = "forbidden"
 source_modules = ["custom_components.heating_controller.engine"]
 forbidden_modules = ["homeassistant", "custom_components.heating_controller.adapter"]
+
+[[tool.importlinter.contracts]]
+name = "The integration does not import the simulator"
+type = "forbidden"
+source_modules = ["custom_components"]
+forbidden_modules = ["sim"]
 
 # --- pytest -----------------------------------------------------------------
 [tool.pytest.ini_options]
@@ -97,10 +103,10 @@ testpaths = ["tests"]
 
 [tool.coverage.run]
 branch = true
-source = ["custom_components/heating_controller"]
+source = ["custom_components/heating_controller", "sim"]
 
 [tool.coverage.report]
 fail_under = 95
 show_missing = true
 skip_covered = true
-exclude_also = ["if TYPE_CHECKING:"]
+exclude_also = ["if TYPE_CHECKING:", "if __name__ == .__main__.:"]
