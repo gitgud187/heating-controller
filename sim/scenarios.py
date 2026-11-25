@@ -434,6 +434,74 @@ def _undersized_bedroom() -> HouseSpec:
     )
 
 
+def _stopped_without_progress(result: SimResult) -> list[str]:
+    """Check that stalled runs are stopped, each only once the progress check has started."""
+    after = result.scenario.config.guard.progress_check_after
+    runs = find_runs(result.samples)
+    stalled = [run for run in runs if run.stop == ReasonCode.NO_PROGRESS]
+    if not stalled:
+        return ["no stop for lack of progress"]
+    return [
+        f"run from {run.start:%H:%M} stopped for lack of progress after "
+        f"{run.duration / MINUTE:.0f} min"
+        for run in stalled
+        if run.duration < after
+    ]
+
+
+def undersized_radiator() -> Scenario:
+    """Give the bedroom a radiator it cannot reach its target with: stalls stop and lock out."""
+    return Scenario(
+        name="undersized_radiator",
+        description=f"bedroom radiator at {UNDERSIZED:.0%} of its size, 24 h around -5 °C",
+        start=MIDNIGHT + _hours(18),
+        duration=DAY,
+        outdoor=OutdoorProfile(mean_c=-5.0, amplitude_k=1.5),
+        house=_undersized_bedroom(),
+        # a room creeping towards its limit can keep the load falling until the 6 h limit
+        criteria=Criteria(max_median_error_k=None, allowed_lockouts=LOCKOUT_STOPS),
+        checks=(_stopped_without_progress,),
+    )
+
+
+RECOVERY_FROM_K = -6.0
+
+
+def _long_recovery_checks(result: SimResult) -> list[str]:
+    """
+    Check that the first run ends on load with the house warm, not by a guard.
+
+    That it lasts beyond the progress check depends on the plant; the tests check it for
+    the default house.
+    """
+    first = find_runs(result.samples)[0]
+    failures = []
+    if first.stop != ReasonCode.STOP_LOAD:
+        failures.append(f"recovery stopped by {first.stop}")
+    end = first.end - result.scenario.start
+    failures.extend(
+        f"{room.name} {room.target_c - room.temp_c:.1f} K short at the end of the recovery"
+        for room in _at(result, end).rooms
+        if room.target_c - room.temp_c > 0.5  # noqa: PLR2004 - within the hysteresis band
+    )
+    return failures
+
+
+def long_recovery() -> Scenario:
+    """Back from a holiday at -10 °C with the house 6 K cold: one run of more than 3 h."""
+    return Scenario(
+        name="long_recovery",
+        description="house 6 K below target at -10 °C: one long run that keeps progressing",
+        start=MIDNIGHT + _hours(9),
+        duration=_hours(14),
+        outdoor=OutdoorProfile(mean_c=-10.0),
+        house=default_house(),
+        settle=_hours(7),
+        initial_offset_k=RECOVERY_FROM_K,
+        checks=(_long_recovery_checks,),
+    )
+
+
 CLEAR_AT = _hours(3.5)
 
 
@@ -489,6 +557,8 @@ SCENARIOS: dict[str, Callable[[], Scenario]] = {
         integration_hung,
         ha_restart,
         pause,
+        undersized_radiator,
+        long_recovery,
         clear_lockout,
     )
 }

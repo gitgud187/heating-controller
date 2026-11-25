@@ -157,6 +157,29 @@ def test_pause_checks() -> None:
     assert len(failures(wrong)) == 3
 
 
+def test_undersized_radiator_checks() -> None:
+    result = run("undersized_radiator")
+    assert failures(everywhere(result, reasons=(ReasonCode.STOP_LOAD,))) == [
+        "no stop for lack of progress"
+    ]
+    first = next(r for r in find_runs(result.samples) if r.stop == ReasonCode.NO_PROGRESS)
+    begin = first.start - result.scenario.start
+    early = edit(result, begin + 60 * MINUTE, begin + 61 * MINUTE, heating=False)
+    early = edit(early, begin + 60 * MINUTE, begin + 61 * MINUTE, reasons=(ReasonCode.NO_PROGRESS,))
+    assert "stopped for lack of progress after 60 min" in failures(early)[0]
+
+
+def test_long_recovery_checks() -> None:
+    result = run("long_recovery")
+    assert failures(result) == []
+    first = find_runs(result.samples)[0]
+    cut = first.start - result.scenario.start + 2 * 60 * MINUTE
+    short = edit(result, cut, cut + MINUTE, heating=False, reasons=(ReasonCode.NO_PROGRESS,))
+    found = failures(short)
+    assert found[0] == "recovery stopped by no_progress"
+    assert "K short at the end of the recovery" in found[1]
+
+
 def test_lockout_checks() -> None:
     result = run("clear_lockout")
     assert failures(everywhere(result, reasons=(ReasonCode.STOP_LOAD,))) == ["no lockout stop"]
