@@ -123,7 +123,7 @@ def test_no_demand_resets_state(snap: RoomSnapshot, status: RoomStatus) -> None:
     ("snap", "status"),
     [
         (room(valve=moes(heating=None, position=None)), RoomStatus.VALVE_DATA_MISSING),
-        (room(valve=sonoff(system_mode="auto")), RoomStatus.VALVE_UNHEALTHY),
+        (room(valve=sonoff(heating=None)), RoomStatus.VALVE_DATA_MISSING),
     ],
 )
 def test_valve_problems_fail_closed_but_track_demand(

@@ -38,14 +38,11 @@ from custom_components.heating_controller.engine.config import EngineConfig
 from custom_components.heating_controller.engine.evaluate import Evaluation, evaluate
 from custom_components.heating_controller.engine.model import (
     Controls,
-    MoesValve,
     RoomSnapshot,
     Snapshot,
-    SonoffValve,
     Thermostat,
     ThermostatMode,
     Valve,
-    ValveProfile,
 )
 from custom_components.heating_controller.engine.state import EngineState
 from custom_components.heating_controller.engine.validity import Flag, Reading
@@ -194,13 +191,12 @@ class RoomMapping:
 
     name: str
     area_m2: float
-    profile: ValveProfile
     climate: str
     wall: Source
     target: Source
     window: Source
     valve_heating: Source
-    fields: Mapping[str, Source]
+    position: Source | None
 
 
 @dataclass(frozen=True, slots=True)
@@ -222,7 +218,7 @@ class EntityMap:
                 room.target,
                 room.window,
                 room.valve_heating,
-                *room.fields.values(),
+                *(() if room.position is None else (room.position,)),
             ]
         ids = {source.entity for source in sources if source.entity is not None}
         ids.update(room.climate for room in self.rooms)
@@ -230,16 +226,6 @@ class EntityMap:
         if self.boiler_power is not None:
             ids.add(self.boiler_power)
         return sorted(ids)
-
-
-MOES_DEFAULTS = {"position": None, "preset": "{valve}@preset_mode", "mode": "=comfort"}
-SONOFF_DEFAULTS = {
-    "system_mode": "{valve}",
-    "opening_degree": "=100",
-    "closing_degree": "=100",
-    "smart_temperature_control": "=off",
-    "temperature_sensor_select": "=local_temperature",
-}
 
 
 def parse_mapping(data: object) -> EntityMap:
@@ -250,16 +236,9 @@ def parse_mapping(data: object) -> EntityMap:
         room = _dict(item, "room")
         name = _str(room.get("name"), "room name")
         climate = _str(room.get("climate"), f"{name}: climate")
-        valve = _str(room.get("valve"), f"{name}: valve")
-        profile = ValveProfile(_str(room.get("profile"), f"{name}: profile"))
-        defaults = MOES_DEFAULTS if profile is ValveProfile.MOES else SONOFF_DEFAULTS
-        fields: dict[str, Source] = {}
-        for key, default in defaults.items():
-            text = room.get(key, room.get(f"{key}_sensor", default))
-            if text is None:
-                msg = f"{name}: {key} is required for the {profile} profile"
-                raise ValueError(msg)
-            fields[key] = Source.parse(_str(text, f"{name}: {key}").format(valve=valve))
+        valve = room.get("valve")
+        heating_source = climate if valve is None else _str(valve, f"{name}: valve")
+        position = room.get("position_sensor")
         area = room.get("area_m2")
         if isinstance(area, bool) or not isinstance(area, int | float):
             msg = f"{name}: area_m2 must be a number"
@@ -268,15 +247,16 @@ def parse_mapping(data: object) -> EntityMap:
             RoomMapping(
                 name=name,
                 area_m2=float(area),
-                profile=profile,
                 climate=climate,
                 wall=Source.parse(_str(room.get("wall_sensor"), f"{name}: wall_sensor")),
                 target=Source.parse(_str(room.get("target", f"{climate}@temperature"), "target")),
                 window=Source.parse(_str(room.get("window", f"{climate}@window_state"), "window")),
                 valve_heating=Source.parse(
-                    _str(room.get("valve_action", f"{valve}@hvac_action"), "valve_action")
+                    _str(room.get("valve_action", f"{heating_source}@hvac_action"), "valve_action")
                 ),
-                fields=fields,
+                position=None
+                if position is None
+                else Source.parse(_str(position, f"{name}: position_sensor")),
             )
         )
     power = top.get("boiler_power")
@@ -298,22 +278,9 @@ def _valve(room: RoomMapping, history: History, now: datetime) -> Valve:
     heating = Flag(
         None if action.value is None else action.value == "heating", action.last_reported
     )
-    fields = {key: source.observe(history, now) for key, source in room.fields.items()}
-    if room.profile is ValveProfile.MOES:
-        return MoesValve(
-            heating=heating,
-            position=_number(fields["position"]),
-            preset=_text(fields["preset"]),
-            mode=_text(fields["mode"]),
-        )
-    return SonoffValve(
-        heating=heating,
-        system_mode=_text(fields["system_mode"]),
-        opening_degree_pct=_number(fields["opening_degree"]).value,
-        closing_degree_pct=_number(fields["closing_degree"]).value,
-        smart_temperature_control=_text(fields["smart_temperature_control"]),
-        temperature_sensor_select=_text(fields["temperature_sensor_select"]),
-    )
+    if room.position is None:
+        return Valve(heating=heating)
+    return Valve(heating=heating, position=_number(room.position.observe(history, now)))
 
 
 def _room(room: RoomMapping, history: History, now: datetime) -> RoomSnapshot:

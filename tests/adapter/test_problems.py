@@ -63,16 +63,16 @@ async def test_overheating_room_is_a_problem(hass: HomeAssistant, calls: Calls) 
     assert "room_overheating_living" in found
 
 
-async def test_unhealthy_and_missing_valves(hass: HomeAssistant, calls: Calls) -> None:
+async def test_missing_valves(hass: HomeAssistant, calls: Calls) -> None:
     set_plant(hass)
-    hass.states.async_set("select.living_trv_sensor", "remote_source_offline")
+    hass.states.async_set("climate.living_trv", "unavailable")
     hass.states.async_set("climate.bedroom_trv", "unavailable")
     hass.states.async_set("sensor.bedroom_trv_position", "unavailable")
     entry = await setup(hass)
     active = entry.runtime_data.problems.active
-    assert "valve_unhealthy_living" in active
+    assert "valve_data_missing_living" in active
     assert "valve_data_missing_bedroom" in active
-    state = hass.states.get("binary_sensor.living_valve_problem")
+    state = hass.states.get("binary_sensor.living_valve_unavailable")
     assert state is not None
     assert state.state == "on"
 

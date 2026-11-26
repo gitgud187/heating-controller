@@ -1,7 +1,7 @@
 """
 Config flow: the plant in the main entry, one subentry per room, tuning in the options.
 
-A room is added in two steps: the common entities, then the entities its valve profile needs.
+A room is its thermostat, wall sensor and floor area, plus optional valve sources.
 """
 
 from __future__ import annotations
@@ -23,24 +23,17 @@ from .adapter.options import OPTIONS
 from .const import (
     CONF_AREA_M2,
     CONF_BOILER_SWITCH,
-    CONF_CLOSING_NUMBER,
     CONF_HEARTBEAT,
-    CONF_MODE_SELECT,
     CONF_NOTIFY_SERVICE,
-    CONF_OPENING_NUMBER,
     CONF_OUTDOOR_SENSOR,
     CONF_POSITION_SENSOR,
     CONF_POWER_LEVEL,
-    CONF_SENSOR_SELECT,
-    CONF_SMART_SWITCH,
     CONF_THERMOSTAT,
     CONF_VALVE,
-    CONF_VALVE_PROFILE,
     CONF_WALL_SENSOR,
     DOMAIN,
     SUBENTRY_ROOM,
 )
-from .engine.model import ValveProfile
 
 if TYPE_CHECKING:
     from collections.abc import Mapping
@@ -66,19 +59,6 @@ STEP_USER_SCHEMA = probatio.Schema(
 
 ROOM_NAME = "name"
 
-ROOM_PROFILE_ENTITIES: dict[ValveProfile, dict[str, selector.EntitySelector]] = {
-    ValveProfile.MOES: {
-        CONF_POSITION_SENSOR: _entity("sensor"),
-        CONF_MODE_SELECT: _entity("select"),
-    },
-    ValveProfile.SONOFF: {
-        CONF_OPENING_NUMBER: _entity("number"),
-        CONF_CLOSING_NUMBER: _entity("number"),
-        CONF_SMART_SWITCH: _entity("switch"),
-        CONF_SENSOR_SELECT: _entity("select"),
-    },
-}
-
 
 def _required(key: str, default: Any) -> probatio.Required:
     """Return a required field, pre-filled only when there is a value to offer."""
@@ -87,7 +67,20 @@ def _required(key: str, default: Any) -> probatio.Required:
     return probatio.Required(key, default=default)
 
 
+def _optional(key: str, default: Any) -> probatio.Optional:
+    """Return an optional field, pre-filled only when there is a value to offer."""
+    if default is None:
+        return probatio.Optional(key)
+    return probatio.Optional(key, description={"suggested_value": default})
+
+
 def _room_schema(defaults: Mapping[str, Any], *, with_name: bool) -> probatio.Schema:
+    """
+    One room: the thermostat that drives its valve, the wall sensor, the floor area.
+
+    The valve sources are optional: a valve climate for its heating flag, a position sensor
+    for its opening. Without either the thermostat's own `hvac_action` is used.
+    """
     fields: dict[Any, Any] = {}
     if with_name:
         fields[_required(ROOM_NAME, defaults.get(ROOM_NAME))] = selector.TextSelector()
@@ -98,31 +91,15 @@ def _room_schema(defaults: Mapping[str, Any], *, with_name: bool) -> probatio.Sc
     fields[_required(CONF_AREA_M2, defaults.get(CONF_AREA_M2, 10.0))] = selector.NumberSelector(
         selector.NumberSelectorConfig(min=0.5, max=200, step=0.1, unit_of_measurement="m²")
     )
-    fields[
-        _required(CONF_VALVE_PROFILE, defaults.get(CONF_VALVE_PROFILE, ValveProfile.MOES.value))
-    ] = selector.SelectSelector(
-        selector.SelectSelectorConfig(
-            options=[profile.value for profile in ValveProfile],
-            translation_key=CONF_VALVE_PROFILE,
-        )
-    )
-    fields[_required(CONF_VALVE, defaults.get(CONF_VALVE))] = _entity("climate")
+    fields[_optional(CONF_VALVE, defaults.get(CONF_VALVE))] = _entity("climate")
+    fields[_optional(CONF_POSITION_SENSOR, defaults.get(CONF_POSITION_SENSOR))] = _entity("sensor")
     return probatio.Schema(fields)
-
-
-def _profile_schema(profile: ValveProfile, defaults: Mapping[str, Any]) -> probatio.Schema:
-    return probatio.Schema(
-        {
-            _required(key, defaults.get(key)): entity
-            for key, entity in ROOM_PROFILE_ENTITIES[profile].items()
-        }
-    )
 
 
 class HeatingControllerConfigFlow(ConfigFlow, domain=DOMAIN):
     """Create the single controller entry."""
 
-    VERSION = 1
+    VERSION = 2
 
     @override
     async def async_step_user(self, user_input: dict[str, Any] | None = None) -> ConfigFlowResult:
@@ -150,16 +127,12 @@ class HeatingControllerConfigFlow(ConfigFlow, domain=DOMAIN):
 class RoomSubentryFlow(ConfigSubentryFlow):
     """Add or reconfigure one room."""
 
-    def __init__(self) -> None:
-        """Start with no data."""
-        self._data: dict[str, Any] = {}
-        self._reconfiguring = False
-
     async def async_step_user(self, user_input: dict[str, Any] | None = None) -> SubentryFlowResult:
-        """Name, thermostat, wall sensor, area, valve profile and valve."""
+        """Name, thermostat, wall sensor, area and the optional valve sources."""
         if user_input is not None:
-            self._data = dict(user_input)
-            return await self.async_step_valve()
+            data = dict(user_input)
+            name = str(data.pop(ROOM_NAME)).strip()
+            return self.async_create_entry(title=name, data=data)
         return self.async_show_form(step_id="user", data_schema=_room_schema({}, with_name=True))
 
     async def async_step_reconfigure(
@@ -168,31 +141,9 @@ class RoomSubentryFlow(ConfigSubentryFlow):
         """Change a room's entities; the name is the subentry title and stays."""
         subentry = self._get_reconfigure_subentry()
         if user_input is not None:
-            self._data = dict(subentry.data) | dict(user_input)
-            self._reconfiguring = True
-            return await self.async_step_valve()
+            return self.async_update_and_abort(self._get_entry(), subentry, data=dict(user_input))
         return self.async_show_form(
             step_id="reconfigure", data_schema=_room_schema(subentry.data, with_name=False)
-        )
-
-    async def async_step_valve(
-        self, user_input: dict[str, Any] | None = None
-    ) -> SubentryFlowResult:
-        """Ask for the entities the valve profile needs."""
-        profile = ValveProfile(self._data[CONF_VALVE_PROFILE])
-        if user_input is not None:
-            keep = {key for keys in ROOM_PROFILE_ENTITIES.values() for key in keys}
-            data = {k: v for k, v in self._data.items() if k not in keep} | dict(user_input)
-            if self._reconfiguring:
-                return self.async_update_and_abort(
-                    self._get_entry(), self._get_reconfigure_subentry(), data=data
-                )
-            name = str(data.pop(ROOM_NAME)).strip()
-            return self.async_create_entry(title=name, data=data)
-        return self.async_show_form(
-            step_id="valve",
-            data_schema=_profile_schema(profile, self._data),
-            description_placeholders={"profile": profile.value},
         )
 
 

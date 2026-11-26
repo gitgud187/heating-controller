@@ -11,28 +11,19 @@ from homeassistant.util import dt as dt_util
 from ..const import (
     CONF_AREA_M2,
     CONF_BOILER_SWITCH,
-    CONF_CLOSING_NUMBER,
-    CONF_MODE_SELECT,
-    CONF_OPENING_NUMBER,
     CONF_OUTDOOR_SENSOR,
     CONF_POSITION_SENSOR,
     CONF_POWER_LEVEL,
-    CONF_SENSOR_SELECT,
-    CONF_SMART_SWITCH,
     CONF_THERMOSTAT,
     CONF_VALVE,
-    CONF_VALVE_PROFILE,
     CONF_WALL_SENSOR,
 )
 from ..engine.model import (
-    MoesValve,
     RoomSnapshot,
     Snapshot,
-    SonoffValve,
     Thermostat,
     ThermostatMode,
     Valve,
-    ValveProfile,
 )
 from ..engine.validity import Flag, Reading
 
@@ -61,7 +52,7 @@ class RoomConfig:
 
 
 def _is_entity_key(key: str) -> bool:
-    return key not in {CONF_AREA_M2, CONF_VALVE_PROFILE}
+    return key != CONF_AREA_M2
 
 
 class SnapshotBuilder:
@@ -132,7 +123,7 @@ class SnapshotBuilder:
             area_m2=float(data[CONF_AREA_M2]),
             thermostat=self._thermostat(thermostat_state),
             wall=self._reading(data[CONF_WALL_SENSOR], missing),
-            valve=self._valve(data, missing),
+            valve=self._valve(data, thermostat_state, missing),
         )
 
     def _thermostat(self, state: State | None) -> Thermostat:
@@ -151,28 +142,25 @@ class SnapshotBuilder:
             window_open=_window_open(state.attributes),
         )
 
-    def _valve(self, data: Mapping[str, Any], missing: list[str]) -> Valve:
-        valve = self._state(data[CONF_VALVE], missing)
-        heating = _heating(valve, self._epoch())
-        if ValveProfile(data[CONF_VALVE_PROFILE]) is ValveProfile.MOES:
-            return MoesValve(
-                heating=heating,
-                position=self._reading(data[CONF_POSITION_SENSOR], missing),
-                preset=None if valve is None else _text(valve.attributes.get("preset_mode")),
-                mode=self._text(data[CONF_MODE_SELECT], missing),
-            )
-        return SonoffValve(
-            heating=heating,
-            system_mode=None if valve is None else _text(valve.state),
-            opening_degree_pct=self._reading(data[CONF_OPENING_NUMBER], missing).value,
-            closing_degree_pct=self._reading(data[CONF_CLOSING_NUMBER], missing).value,
-            smart_temperature_control=self._text(data[CONF_SMART_SWITCH], missing),
-            temperature_sensor_select=self._text(data[CONF_SENSOR_SELECT], missing),
-        )
+    def _valve(
+        self, data: Mapping[str, Any], thermostat: State | None, missing: list[str]
+    ) -> Valve:
+        """
+        Read the room's valve sources.
 
-    def _text(self, entity_id: str, missing: list[str]) -> str | None:
-        state = self._state(entity_id, missing)
-        return None if state is None else _text(state.state)
+        A configured valve climate gives the heating flag; a configured position sensor the
+        opening. With neither, the room thermostat's own `hvac_action` stands in.
+        """
+        valve_id = data.get(CONF_VALVE)
+        position_id = data.get(CONF_POSITION_SENSOR)
+        position = self._reading(position_id, missing) if position_id else None
+        if valve_id:
+            return Valve(
+                heating=_heating(self._state(valve_id, missing), self._epoch()), position=position
+            )
+        if position is not None:
+            return Valve(position=position)
+        return Valve(heating=_heating(thermostat, self._epoch()))
 
     @staticmethod
     def _epoch() -> datetime:
@@ -191,12 +179,6 @@ def _number(value: object) -> float | None:
         except ValueError:
             return None
     return None
-
-
-def _text(value: object) -> str | None:
-    if not isinstance(value, str) or value in MISSING:
-        return None
-    return value
 
 
 def _heating(state: State | None, epoch: datetime) -> Flag:

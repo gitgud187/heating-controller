@@ -15,7 +15,7 @@ from custom_components.heating_controller.const import (
     SUBENTRY_ROOM,
 )
 
-from .adapter.conftest import BEDROOM, LIVING, Calls, make_entry, set_plant, setup
+from .adapter.conftest import BEDROOM, Calls, make_entry, set_plant, setup
 
 if TYPE_CHECKING:
     from homeassistant.core import HomeAssistant
@@ -26,7 +26,7 @@ USER_INPUT = {
     CONF_HEARTBEAT: "button.boiler_heartbeat",
     CONF_OUTDOOR_SENSOR: "sensor.outdoor",
 }
-COMMON = ("thermostat", "wall_sensor", "area_m2", "valve_profile", "valve")
+COMMON = ("thermostat", "wall_sensor", "area_m2", "valve")
 
 
 async def test_user_step_creates_entry(hass: HomeAssistant) -> None:
@@ -55,19 +55,15 @@ async def test_add_a_moes_room(hass: HomeAssistant) -> None:
     )
     assert result["step_id"] == "user"
     first = {"name": " Bedroom "} | {key: BEDROOM[key] for key in COMMON}
+    first["position_sensor"] = BEDROOM["position_sensor"]
     result = await hass.config_entries.subentries.async_configure(result["flow_id"], first)
-    assert result["step_id"] == "valve"
-    result = await hass.config_entries.subentries.async_configure(
-        result["flow_id"],
-        {"position_sensor": BEDROOM["position_sensor"], "mode_select": BEDROOM["mode_select"]},
-    )
     assert result["type"] is FlowResultType.CREATE_ENTRY
     (room,) = entry.get_subentries_of_type(SUBENTRY_ROOM)
     assert room.title == "Bedroom"
     assert dict(room.data) == BEDROOM
 
 
-async def test_reconfigure_a_room_to_sonoff(hass: HomeAssistant) -> None:
+async def test_reconfigure_a_room_without_valve_entities(hass: HomeAssistant) -> None:
     entry = make_entry()
     entry.add_to_hass(hass)
     bedroom = next(r for r in entry.get_subentries_of_type(SUBENTRY_ROOM) if r.title == "Bedroom")
@@ -76,20 +72,32 @@ async def test_reconfigure_a_room_to_sonoff(hass: HomeAssistant) -> None:
         context={"source": SOURCE_RECONFIGURE, "subentry_id": bedroom.subentry_id},
     )
     assert result["step_id"] == "reconfigure"
-    common = {key: BEDROOM[key] for key in COMMON} | {"valve_profile": "sonoff"}
-    result = await hass.config_entries.subentries.async_configure(result["flow_id"], common)
-    assert result["step_id"] == "valve"
-    sonoff = {
-        key: LIVING[key]
-        for key in ("opening_number", "closing_number", "smart_switch", "sensor_select")
-    }
-    result = await hass.config_entries.subentries.async_configure(result["flow_id"], sonoff)
+    plain = {key: BEDROOM[key] for key in ("thermostat", "wall_sensor", "area_m2")}
+    result = await hass.config_entries.subentries.async_configure(result["flow_id"], plain)
     assert result["type"] is FlowResultType.ABORT
     assert result["reason"] == "reconfigure_successful"
-    data = dict(entry.subentries[bedroom.subentry_id].data)
-    assert data["valve_profile"] == "sonoff"
-    assert "position_sensor" not in data
-    assert data["opening_number"] == LIVING["opening_number"]
+    assert dict(entry.subentries[bedroom.subentry_id].data) == plain
+
+
+async def test_version_1_rooms_are_migrated(hass: HomeAssistant, calls: Calls) -> None:
+    old = BEDROOM | {"valve_profile": "moes", "mode_select": "select.bedroom_trv_mode"}
+    entry = make_entry(
+        version=1,
+        subentries_data=(
+            {"data": old, "subentry_type": SUBENTRY_ROOM, "title": "Bedroom", "unique_id": None},
+        ),
+    )
+    set_plant(hass)
+    await setup(hass, entry)
+    assert entry.version == 2
+    (room,) = entry.get_subentries_of_type(SUBENTRY_ROOM)
+    assert dict(room.data) == BEDROOM
+
+
+async def test_newer_entries_are_refused(hass: HomeAssistant) -> None:
+    entry = make_entry(version=3)
+    entry.add_to_hass(hass)
+    assert not await hass.config_entries.async_setup(entry.entry_id)
 
 
 async def test_options_flow_stores_numbers(hass: HomeAssistant, calls: Calls) -> None:

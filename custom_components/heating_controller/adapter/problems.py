@@ -35,7 +35,6 @@ class ProblemKind(StrEnum):
     WALL_INVALID = "wall_invalid"
     THERMOSTAT_INVALID = "thermostat_invalid"
     VALVE_DATA_MISSING = "valve_data_missing"
-    VALVE_UNHEALTHY = "valve_unhealthy"
     ROOM_BLOCKED = "room_blocked"
     ROOM_OVERHEATING = "room_overheating"
     LOCKOUT = "lockout"
@@ -49,7 +48,6 @@ ROOM_PROBLEMS: dict[RoomStatus, ProblemKind] = {
     RoomStatus.WALL_INVALID: ProblemKind.WALL_INVALID,
     RoomStatus.THERMOSTAT_INVALID: ProblemKind.THERMOSTAT_INVALID,
     RoomStatus.VALVE_DATA_MISSING: ProblemKind.VALVE_DATA_MISSING,
-    RoomStatus.VALVE_UNHEALTHY: ProblemKind.VALVE_UNHEALTHY,
     RoomStatus.BLOCKED: ProblemKind.ROOM_BLOCKED,
 }
 
@@ -57,7 +55,6 @@ MESSAGES: dict[ProblemKind, str] = {
     ProblemKind.WALL_INVALID: "{room}: wall sensor unavailable or stale, room left out",
     ProblemKind.THERMOSTAT_INVALID: "{room}: thermostat unavailable, room left out",
     ProblemKind.VALVE_DATA_MISSING: "{room}: valve unavailable, room left out",
-    ProblemKind.VALVE_UNHEALTHY: "{room}: valve in the wrong mode or settings, room left out",
     ProblemKind.ROOM_BLOCKED: "{room}: needs heat but its valve stays closed",
     ProblemKind.ROOM_OVERHEATING: "{room}: well above its target for a while; valve held open?",
     ProblemKind.LOCKOUT: "Boiler {message}",

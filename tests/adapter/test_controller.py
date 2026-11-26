@@ -280,11 +280,11 @@ async def test_missing_room_entity_is_reported_and_only_that_room_left_out(
     hass: HomeAssistant, calls: Calls
 ) -> None:
     set_plant(hass, bedroom_c=18.0)
-    hass.states.async_remove("select.living_trv_sensor")
+    hass.states.async_remove("sensor.bedroom_trv_position")
     entry = await setup(hass)
-    assert last(entry).reason.code is ReasonCode.START_LOAD  # the bedroom still heats
+    assert last(entry).reason.code is ReasonCode.START_LOAD  # its heating flag still counts
     assert "entity_missing" in controller(entry).problems.active
-    assert "select.living_trv_sensor" in calls.notify[0].data["message"]
+    assert "sensor.bedroom_trv_position" in calls.notify[0].data["message"]
 
 
 async def test_heartbeat_is_withheld_when_evaluations_stop(

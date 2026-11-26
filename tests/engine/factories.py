@@ -5,10 +5,8 @@ from __future__ import annotations
 from datetime import UTC, datetime
 
 from custom_components.heating_controller.engine.model import (
-    MoesValve,
     RoomSnapshot,
     Snapshot,
-    SonoffValve,
     Thermostat,
     ThermostatMode,
     Valve,
@@ -22,36 +20,15 @@ def moes(
     *,
     heating: bool | None = True,
     position: float | None = 50.0,
-    preset: str | None = "manual",
-    mode: str | None = "comfort",
     at: datetime = NOW,
-) -> MoesValve:
-    return MoesValve(
-        heating=Flag(heating, at),
-        position=Reading(position, at),
-        preset=preset,
-        mode=mode,
-    )
+) -> Valve:
+    """A valve that reports both a heating flag and a position (like a Moes TRV801)."""
+    return Valve(heating=Flag(heating, at), position=Reading(position, at))
 
 
-def sonoff(  # noqa: PLR0913 - a builder is clearer with every knob as a keyword
-    *,
-    heating: bool | None = True,
-    system_mode: str | None = "heat",
-    opening: float | None = 100.0,
-    closing: float | None = 100.0,
-    smart: str | None = "off",
-    sensor_select: str | None = "local_temperature",
-    at: datetime = NOW,
-) -> SonoffValve:
-    return SonoffValve(
-        heating=Flag(heating, at),
-        system_mode=system_mode,
-        opening_degree_pct=opening,
-        closing_degree_pct=closing,
-        smart_temperature_control=smart,
-        temperature_sensor_select=sensor_select,
-    )
+def sonoff(*, heating: bool | None = True, at: datetime = NOW) -> Valve:
+    """A valve that reports only a heating flag (like a Sonoff TRVZB)."""
+    return Valve(heating=Flag(heating, at))
 
 
 def room(  # noqa: PLR0913 - a builder is clearer with every knob as a keyword

@@ -26,7 +26,6 @@ class RoomStatus(StrEnum):
     WALL_INVALID = "wall_invalid"
     THERMOSTAT_INVALID = "thermostat_invalid"
     VALVE_DATA_MISSING = "valve_data_missing"
-    VALVE_UNHEALTHY = "valve_unhealthy"
     THERMOSTAT_OFF = "thermostat_off"
     WINDOW_OPEN = "window_open"
     SATISFIED = "satisfied"
@@ -41,7 +40,6 @@ EXCLUDED = frozenset(
         RoomStatus.WALL_INVALID,
         RoomStatus.THERMOSTAT_INVALID,
         RoomStatus.VALVE_DATA_MISSING,
-        RoomStatus.VALVE_UNHEALTHY,
     }
 )
 
@@ -156,8 +154,6 @@ def _no_demand_status(thermostat: Thermostat) -> RoomStatus | None:
 def _valve_status(valve: ValveAssessment) -> RoomStatus | None:
     if valve.data_missing:
         return RoomStatus.VALVE_DATA_MISSING
-    if not valve.healthy:
-        return RoomStatus.VALVE_UNHEALTHY
     return None
 
 

@@ -13,19 +13,13 @@ from pytest_homeassistant.common import MockConfigEntry, async_mock_service
 from custom_components.heating_controller.const import (
     CONF_AREA_M2,
     CONF_BOILER_SWITCH,
-    CONF_CLOSING_NUMBER,
     CONF_HEARTBEAT,
-    CONF_MODE_SELECT,
     CONF_NOTIFY_SERVICE,
-    CONF_OPENING_NUMBER,
     CONF_OUTDOOR_SENSOR,
     CONF_POSITION_SENSOR,
     CONF_POWER_LEVEL,
-    CONF_SENSOR_SELECT,
-    CONF_SMART_SWITCH,
     CONF_THERMOSTAT,
     CONF_VALVE,
-    CONF_VALVE_PROFILE,
     CONF_WALL_SENSOR,
     DOMAIN,
     SUBENTRY_ROOM,
@@ -45,21 +39,14 @@ BEDROOM = {
     CONF_THERMOSTAT: "climate.bedroom",
     CONF_WALL_SENSOR: "sensor.bedroom_temperature",
     CONF_AREA_M2: 16.0,
-    CONF_VALVE_PROFILE: "moes",
     CONF_VALVE: "climate.bedroom_trv",
     CONF_POSITION_SENSOR: "sensor.bedroom_trv_position",
-    CONF_MODE_SELECT: "select.bedroom_trv_mode",
 }
 LIVING = {
     CONF_THERMOSTAT: "climate.living",
     CONF_WALL_SENSOR: "sensor.living_temperature",
     CONF_AREA_M2: 18.0,
-    CONF_VALVE_PROFILE: "sonoff",
     CONF_VALVE: "climate.living_trv",
-    CONF_OPENING_NUMBER: "number.living_trv_opening",
-    CONF_CLOSING_NUMBER: "number.living_trv_closing",
-    CONF_SMART_SWITCH: "switch.living_trv_smart",
-    CONF_SENSOR_SELECT: "select.living_trv_sensor",
 }
 
 
@@ -107,14 +94,9 @@ def set_plant(  # noqa: PLR0913 - every knob of the fake house
         {"hvac_action": "heating" if bedroom_heating else "idle", "preset_mode": "manual"},
     )
     hass.states.async_set("sensor.bedroom_trv_position", "40" if bedroom_heating else "0")
-    hass.states.async_set("select.bedroom_trv_mode", "comfort")
     hass.states.async_set(
         "climate.living_trv", "heat", {"hvac_action": "heating" if living_heating else "idle"}
     )
-    hass.states.async_set("number.living_trv_opening", "100")
-    hass.states.async_set("number.living_trv_closing", "100")
-    hass.states.async_set("switch.living_trv_smart", "off")
-    hass.states.async_set("select.living_trv_sensor", "local_temperature")
 
 
 @pytest.fixture(autouse=True)

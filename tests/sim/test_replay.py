@@ -8,7 +8,6 @@ from pathlib import Path
 
 import pytest
 
-from custom_components.heating_controller.engine.model import MoesValve, SonoffValve
 from custom_components.heating_controller.engine.reasons import ReasonCode
 from sim.loop import simulate
 from sim.replay import (
@@ -86,12 +85,9 @@ def test_replay_window_and_example_mapping(recorded: list[list[dict[str, object]
     }
     snap = build_snapshot(mapping, history, start, engine_on=True)
     assert snap.complete
-    assert isinstance(snap.rooms[0].valve, MoesValve)
-    assert snap.rooms[2].valve.mode == "comfort"  # type: ignore[union-attr] # a Moes room
-    sonoff = snap.rooms[3].valve
-    assert isinstance(sonoff, SonoffValve)
-    assert sonoff.opening_degree_pct == 100.0
-    assert sonoff.system_mode == "heat"
+    assert snap.rooms[0].valve.position is not None  # a room with a position sensor
+    assert snap.rooms[3].valve.position is None  # a room with only a heating flag
+    assert snap.rooms[3].valve.heating is not None
 
 
 def test_source_parsing_and_observation() -> None:
@@ -174,10 +170,12 @@ def test_mapping_errors() -> None:
     data = mapping_data()
     rooms = data["rooms"]
     assert isinstance(rooms, list)
-    no_position = {**rooms[0]}
-    del no_position["position_sensor"]
-    with pytest.raises(ValueError, match="position is required"):
-        parse_mapping({**data, "rooms": [no_position]})
+    no_valve = {
+        key: value for key, value in rooms[0].items() if key not in {"valve", "position_sensor"}
+    }
+    plain = parse_mapping({**data, "rooms": [no_valve]}).rooms[0]
+    assert plain.position is None
+    assert plain.valve_heating.entity == plain.climate  # the thermostat stands in
     with pytest.raises(ValueError, match="area_m2"):
         parse_mapping({**data, "rooms": [{**rooms[0], "area_m2": "big"}]})
     with pytest.raises(ValueError, match="expected a string"):

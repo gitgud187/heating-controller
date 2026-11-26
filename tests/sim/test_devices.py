@@ -5,12 +5,7 @@ from datetime import UTC, datetime, timedelta
 
 import pytest
 
-from custom_components.heating_controller.engine.model import (
-    MoesValve,
-    SonoffValve,
-    ThermostatMode,
-    ValveProfile,
-)
+from custom_components.heating_controller.engine.model import ThermostatMode
 from sim.devices import (
     Board,
     BoardParams,
@@ -21,6 +16,7 @@ from sim.devices import (
     SensorParams,
     ThermostatSim,
     ValveFault,
+    ValveKind,
     ValveParams,
     ValveSim,
     quantise,
@@ -89,7 +85,7 @@ def test_frozen_sensor_keeps_value_and_timestamp() -> None:
 
 
 def moes() -> ValveSim:
-    return ValveSim(ValveParams(profile=ValveProfile.MOES, noise_k=0.0), start=T0)
+    return ValveSim(ValveParams(kind=ValveKind.PROPORTIONAL, noise_k=0.0), start=T0)
 
 
 def test_moes_opens_proportionally_in_steps_and_reports_on_change() -> None:
@@ -125,7 +121,7 @@ def test_moes_closes_above_target_and_reports_idle() -> None:
 
 
 def sonoff() -> ValveSim:
-    return ValveSim(ValveParams(profile=ValveProfile.SONOFF, noise_k=0.0), start=T0)
+    return ValveSim(ValveParams(kind=ValveKind.ON_OFF, noise_k=0.0), start=T0)
 
 
 def test_sonoff_switches_with_hysteresis() -> None:
@@ -144,16 +140,14 @@ def test_thermostat_holding_the_valve_off_closes_it() -> None:
     assert valve.opening == 0.0
 
 
-def test_stuck_open_valve_shows_the_trap() -> None:
+def test_stuck_open_valve_reports_heating() -> None:
     for valve in (moes(), sonoff()):
         valve.fault = ValveFault.STUCK_OPEN
         valve.update(T0, 25.0, 21.0, quiet())
         assert valve.opening == 1.0
         view = valve.engine_view()
-        if isinstance(view, MoesValve):
-            assert view.preset == "on"
-        else:
-            assert view.system_mode == "auto"
+        assert view.heating is not None
+        assert view.heating.value is True
 
 
 def test_valve_that_never_opens_reports_closed() -> None:
@@ -161,29 +155,24 @@ def test_valve_that_never_opens_reports_closed() -> None:
     valve.fault = ValveFault.NEVER_OPENS
     valve.update(T0, 15.0, 21.0, quiet())
     view = valve.engine_view()
-    assert isinstance(view, MoesValve)
+    assert view.position is not None
     assert view.position.value == 0.0
+    assert view.heating is not None
     assert view.heating.value is False
-    assert view.preset == "manual"
 
 
 def test_unavailable_valve_has_no_data() -> None:
     for valve in (moes(), sonoff()):
         valve.fault = ValveFault.UNAVAILABLE
         view = valve.engine_view()
+        assert view.heating is not None
         assert view.heating.value is None
-        if isinstance(view, MoesValve):
+        if view.position is not None:
             assert view.position.value is None
-        else:
-            assert isinstance(view, SonoffValve)
-            assert view.system_mode is None
 
 
-def test_healthy_sonoff_view() -> None:
-    view = sonoff().engine_view()
-    assert isinstance(view, SonoffValve)
-    assert view.opening_degree_pct == 100.0
-    assert view.temperature_sensor_select == "local_temperature"
+def test_on_off_valve_reports_no_position() -> None:
+    assert sonoff().engine_view().position is None
 
 
 def test_schedule_and_overrides() -> None:

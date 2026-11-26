@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from enum import StrEnum
-from typing import TYPE_CHECKING, ClassVar
+from typing import TYPE_CHECKING
 
 if TYPE_CHECKING:
     from datetime import datetime
@@ -19,13 +19,6 @@ class ThermostatMode(StrEnum):
     OFF = "off"
 
 
-class ValveProfile(StrEnum):
-    """Which rules decide whether a valve is open and healthy."""
-
-    MOES = "moes"
-    SONOFF = "sonoff"
-
-
 @dataclass(frozen=True, slots=True)
 class Thermostat:
     """The room thermostat. `mode` is None when unavailable or not heat/off."""
@@ -36,32 +29,17 @@ class Thermostat:
 
 
 @dataclass(frozen=True, slots=True)
-class MoesValve:
-    """A Moes TRV801: position sensor plus `hvac_action`."""
+class Valve:
+    """
+    How the engine sees whether heat reaches the room. Every source is optional.
 
-    profile: ClassVar[ValveProfile] = ValveProfile.MOES
+    `heating` is a heating flag (the valve's or the thermostat's `hvac_action`), `position`
+    an opening in percent. A source that is not configured is None; a configured source that
+    is unavailable has a None value.
+    """
 
-    heating: Flag
-    position: Reading
-    preset: str | None
-    mode: str | None
-
-
-@dataclass(frozen=True, slots=True)
-class SonoffValve:
-    """A Sonoff TRVZB: no position, only `hvac_action`."""
-
-    profile: ClassVar[ValveProfile] = ValveProfile.SONOFF
-
-    heating: Flag
-    system_mode: str | None
-    opening_degree_pct: float | None
-    closing_degree_pct: float | None
-    smart_temperature_control: str | None
-    temperature_sensor_select: str | None
-
-
-type Valve = MoesValve | SonoffValve
+    heating: Flag | None = None
+    position: Reading | None = None
 
 
 @dataclass(frozen=True, slots=True)

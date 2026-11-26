@@ -68,8 +68,8 @@ uv run python -m sim.replay sim/data/history.json --mapping sim/data/mapping.jso
 ```
 
 - `plant.py` one thermal node per room, radiator lag, boiler with its 30 % floor;
-  `devices.py` sensors (noise, quantisation, report interval/on change), Moes and Sonoff
-  valves, VTherm, the boiler board with its heartbeat and API failsafes; `house.py` the default
+  `devices.py` sensors (noise, quantisation, report interval/on change), proportional and
+  on/off valves, VTherm, the boiler board with its heartbeat and API failsafes; `house.py` the default
   four-room house (made-up parameters).
 - `loop.py` steps the plant, evaluates every 60 s, persists the engine state through
   `to_dict`/`from_dict` every step, and records each minute.

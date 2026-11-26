@@ -26,8 +26,9 @@ It reads the rooms (thermostats, wall sensors, radiator valves) and never comman
 - Home Assistant 2026.11 or newer
 - A boiler with an on/off switch entity and a numeric output entity (1–100 %)
 - A heartbeat button on the boiler board (see below)
-- Per room: a climate entity, a wall temperature sensor, and a radiator valve
-  (Moes TRV801 or Sonoff TRVZB profiles are built in)
+- Per room: a thermostat (any climate entity that drives the radiator valve, for example a
+  Better Thermostat) and a wall temperature sensor; optionally the valve's own climate entity
+  and its position sensor
 
 ## Installation
 
@@ -40,8 +41,8 @@ under Settings → Devices & services. The dashboard card is a separate reposito
 1. **Boiler:** the demand switch, the output number (1–100 %), the board's heartbeat button, the
    outdoor temperature and, optionally, a notification service.
 2. **Rooms:** on the integration page, *Add room* once per room: thermostat, wall sensor, floor
-   area, valve type and valve, then the valve's settings entities (Moes: position and mode;
-   Sonoff: opening and closing degree, smart control, sensor selection).
+   area and, optionally, the valve (its heating state is read) and a valve position sensor.
+   Without them the thermostat's own heating state tells whether the valve is open.
 3. **Tuning:** *Configure* holds the thresholds and gains. The defaults are a reasonable start.
 
 The controller exposes the boiler state with the reason for it, load, output and its terms,

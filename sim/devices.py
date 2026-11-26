@@ -13,12 +13,9 @@ from enum import StrEnum
 from typing import TYPE_CHECKING
 
 from custom_components.heating_controller.engine.model import (
-    MoesValve,
-    SonoffValve,
     Thermostat,
     ThermostatMode,
     Valve,
-    ValveProfile,
 )
 from custom_components.heating_controller.engine.validity import Flag, Reading
 
@@ -108,9 +105,16 @@ class ValveFault(StrEnum):
     """What can go wrong with a radiator valve."""
 
     NONE = "none"
-    STUCK_OPEN = "stuck_open"  # the preset trap: Moes preset `on`, Sonoff mode `auto`
+    STUCK_OPEN = "stuck_open"  # held open whatever the target: a mechanical or setting fault
     NEVER_OPENS = "never_opens"  # mechanically stuck, reports closed
     UNAVAILABLE = "unavailable"  # the Zigbee device is gone
+
+
+class ValveKind(StrEnum):
+    """How the simulated valve regulates and what it reports."""
+
+    PROPORTIONAL = "proportional"  # modulates and reports a position (like a Moes TRV801)
+    ON_OFF = "on_off"  # open or closed, reports only heating (like a Sonoff TRVZB)
 
 
 @dataclass(frozen=True, slots=True)
@@ -118,14 +122,14 @@ class ValveParams:
     """
     A valve's regulation on its own sensor.
 
-    Moes: proportional-integral like the valve's own regulation, opening by `1 / band_k` per
+    Proportional: proportional-integral like the valve's own regulation, opening by `1 / band_k` per
     kelvin below target plus an integral with `integral_time`, positions in
-    `position_step_pct` steps. Sonoff: on/off, opens at target + `accuracy_k` (negative),
+    `position_step_pct` steps. On/off: opens at target + `accuracy_k` (negative),
     closes at target. `offset_k` is the valve sensor's error against the room after
     calibration.
     """
 
-    profile: ValveProfile
+    kind: ValveKind
     band_k: float = 1.0
     integral_time: timedelta = timedelta(minutes=45)
     position_step_pct: int = 5
@@ -162,7 +166,7 @@ class ValveSim:
             opening = 1.0
         elif self.fault is ValveFault.NEVER_OPENS or target_c is None:
             opening = 0.0
-        elif self.params.profile is ValveProfile.MOES:
+        elif self.params.kind is ValveKind.PROPORTIONAL:
             opening = self._moes_opening(target_c - local)
         elif local <= target_c + self.params.accuracy_k:
             opening = 1.0
@@ -191,27 +195,13 @@ class ValveSim:
         return round(max(0.0, min(1.0, raw)) * 100 / position_step) * position_step / 100
 
     def engine_view(self) -> Valve:
-        """Return what the snapshot sees, per profile."""
+        """Return what the snapshot sees: the heating flag, and the position if reported."""
         gone = self.fault is ValveFault.UNAVAILABLE
         heating = Flag(None if gone else self.heating, self.heating_reported)
-        stuck = self.fault is ValveFault.STUCK_OPEN
-        if self.params.profile is ValveProfile.MOES:
-            return MoesValve(
-                heating=heating,
-                position=Reading(
-                    None if gone else float(self.position_pct), self.position_reported
-                ),
-                preset=None if gone else ("on" if stuck else "manual"),
-                mode=None if gone else "comfort",
-            )
-        return SonoffValve(
-            heating=heating,
-            system_mode=None if gone else ("auto" if stuck else "heat"),
-            opening_degree_pct=None if gone else 100.0,
-            closing_degree_pct=None if gone else 100.0,
-            smart_temperature_control=None if gone else "off",
-            temperature_sensor_select=None if gone else "local_temperature",
-        )
+        if self.params.kind is ValveKind.PROPORTIONAL:
+            position = Reading(None if gone else float(self.position_pct), self.position_reported)
+            return Valve(heating=heating, position=position)
+        return Valve(heating=heating)
 
 
 @dataclass(frozen=True, slots=True)

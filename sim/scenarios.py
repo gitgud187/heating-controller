@@ -181,17 +181,38 @@ def _status_during(
     return check
 
 
+def _overheating_detected(room_name: str) -> Callable[[SimResult], list[str]]:
+    """Require the room to be flagged as overheating (valve open, well above target)."""
+
+    def check(result: SimResult) -> list[str]:
+        config = result.scenario.config.overheat
+        since: datetime | None = None
+        for sample in _between(result, FAULT_AT, result.scenario.duration):
+            room = _room(sample, room_name)
+            over = (
+                room.wall_c is not None
+                and room.wall_c - room.target_c > config.above_k
+                and room.opening > 0
+            )
+            since = (since or sample.time) if over else None
+            if since is not None and sample.time - since >= config.after:
+                return []
+        return [f"{room_name} never flagged as overheating"]
+
+    return check
+
+
 def valve_stuck_open() -> Scenario:
-    """Hold the bedroom valve open by its preset: fail-closed, the room may overheat."""
+    """Hold the bedroom valve open: it still reports heating, and the room overheats."""
     return Scenario(
         name="valve_stuck_open",
-        description="bedroom valve held open by its preset (trap) at +5 °C",
+        description="bedroom valve held open at +5 °C",
         start=MIDNIGHT,
         duration=DAY,
         outdoor=OutdoorProfile(mean_c=5.0, amplitude_k=3.0),
         house=default_house(),
         events=(ValveFaultEvent("bedroom", FAULT_AT, ValveFault.STUCK_OPEN),),
-        checks=(_status_during("bedroom", frozenset({RoomStatus.VALVE_UNHEALTHY}), FAULT_AT, DAY),),
+        checks=(_overheating_detected("bedroom"),),
     )
 
 

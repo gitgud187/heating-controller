@@ -2,8 +2,6 @@ from __future__ import annotations
 
 import pytest
 
-from custom_components.heating_controller.engine.model import ValveProfile
-
 from .factories import moes, room, snapshot, sonoff
 
 
@@ -17,9 +15,9 @@ def test_room_names_must_be_unique() -> None:
         snapshot(room("bedroom"), room("bedroom"))
 
 
-def test_valves_know_their_profile() -> None:
-    assert moes().profile is ValveProfile.MOES
-    assert sonoff().profile is ValveProfile.SONOFF
+def test_valve_sources_are_optional() -> None:
+    assert moes().position is not None
+    assert sonoff().position is None
 
 
 def test_valid_snapshot_keeps_its_rooms() -> None:

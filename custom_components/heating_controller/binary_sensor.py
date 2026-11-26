@@ -1,4 +1,4 @@
-"""Binary sensors per room: demand, served, blocked, valve open, valve healthy, overheating."""
+"""Binary sensors per room: demand, served, blocked, valve open, valve data, overheating."""
 
 from __future__ import annotations
 
@@ -62,7 +62,7 @@ ROOM_BINARY_SENSORS: tuple[RoomBinaryDescription, ...] = (
         translation_key="valve_problem",
         device_class=BinarySensorDeviceClass.PROBLEM,
         entity_category=EntityCategory.DIAGNOSTIC,
-        value_fn=lambda room, _c: room.valve.data_missing or not room.valve.healthy,
+        value_fn=lambda room, _c: room.valve.data_missing,
     ),
     RoomBinaryDescription(
         key="overheating",

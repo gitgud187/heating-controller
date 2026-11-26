@@ -35,20 +35,9 @@ class DemandConfig:
 
 @dataclass(frozen=True, slots=True)
 class ValveConfig:
-    """What counts as an open and as a healthy valve, per profile."""
+    """When a reported valve opening counts as open."""
 
-    moes_open_position_pct: float = 5.0
-    moes_healthy_preset: str = "manual"
-    moes_healthy_mode: str = "comfort"
-    sonoff_healthy_system_mode: str = "heat"
-    sonoff_required_degree_pct: float = 100.0
-    sonoff_healthy_smart_temperature_control: str = "off"
-    # Its own sensor, or an external temperature written by the thermostat. When that external
-    # value stops arriving the valve reports `remote_source_offline` and falls back to its own
-    # sensor; that is reported as unhealthy so somebody looks.
-    sonoff_healthy_sensor_selects: frozenset[str] = frozenset(
-        {"local_temperature", "remote_temperature"}
-    )
+    open_position_pct: float = 5.0
 
 
 @dataclass(frozen=True, slots=True)

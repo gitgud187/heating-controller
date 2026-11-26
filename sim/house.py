@@ -12,9 +12,7 @@ from dataclasses import dataclass, replace
 from datetime import timedelta
 from typing import TYPE_CHECKING
 
-from custom_components.heating_controller.engine.model import ValveProfile
-
-from .devices import Schedule, SensorParams, ValveParams
+from .devices import Schedule, SensorParams, ValveKind, ValveParams
 from .plant import Coupling, RoomParams
 
 if TYPE_CHECKING:
@@ -86,8 +84,8 @@ def room_params(  # noqa: PLR0913 - every parameter is a keyword with a default
 
 SLOW_SENSOR = SensorParams(interval=timedelta(minutes=5), change_k=0.2)
 FAST_SENSOR = SensorParams(interval=timedelta(minutes=1))
-MOES = ValveParams(profile=ValveProfile.MOES)
-SONOFF = ValveParams(profile=ValveProfile.SONOFF)
+MOES = ValveParams(kind=ValveKind.PROPORTIONAL)
+SONOFF = ValveParams(kind=ValveKind.ON_OFF)
 
 
 def schedule(night: float, morning: float, day: float) -> Schedule:

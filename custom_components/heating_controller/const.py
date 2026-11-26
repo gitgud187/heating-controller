@@ -17,21 +17,17 @@ SUBENTRY_ROOM: Final = "room"
 CONF_THERMOSTAT: Final = "thermostat"
 CONF_WALL_SENSOR: Final = "wall_sensor"
 CONF_AREA_M2: Final = "area_m2"
-CONF_VALVE_PROFILE: Final = "valve_profile"
-CONF_VALVE: Final = "valve"
-CONF_POSITION_SENSOR: Final = "position_sensor"
-CONF_MODE_SELECT: Final = "mode_select"
-CONF_OPENING_NUMBER: Final = "opening_number"
-CONF_CLOSING_NUMBER: Final = "closing_number"
-CONF_SMART_SWITCH: Final = "smart_switch"
-CONF_SENSOR_SELECT: Final = "sensor_select"
+CONF_VALVE: Final = "valve"  # optional: a climate whose hvac_action says the valve heats
+CONF_POSITION_SENSOR: Final = "position_sensor"  # optional: the valve opening in percent
 
-MOES_ENTITIES: Final = (CONF_POSITION_SENSOR, CONF_MODE_SELECT)
-SONOFF_ENTITIES: Final = (
-    CONF_OPENING_NUMBER,
-    CONF_CLOSING_NUMBER,
-    CONF_SMART_SWITCH,
-    CONF_SENSOR_SELECT,
+# Keys of the version 1 room format, removed when an entry is migrated to version 2.
+LEGACY_ROOM_KEYS: Final = (
+    "valve_profile",
+    "mode_select",
+    "opening_number",
+    "closing_number",
+    "smart_switch",
+    "sensor_select",
 )
 
 # Controller timing.
