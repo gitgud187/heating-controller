@@ -33,7 +33,12 @@ class ValveConfig:
     sonoff_healthy_system_mode: str = "heat"
     sonoff_required_degree_pct: float = 100.0
     sonoff_healthy_smart_temperature_control: str = "off"
-    sonoff_healthy_sensor_select: str = "local_temperature"
+    # Its own sensor, or an external temperature written by the thermostat. When that external
+    # value stops arriving the valve reports `remote_source_offline` and falls back to its own
+    # sensor; that is reported as unhealthy so somebody looks.
+    sonoff_healthy_sensor_selects: frozenset[str] = frozenset(
+        {"local_temperature", "remote_temperature"}
+    )
 
 
 @dataclass(frozen=True, slots=True)

@@ -96,8 +96,13 @@ def test_sonoff_healthy_defaults() -> None:
         sonoff(opening=0.0),
         sonoff(closing=None),
         sonoff(smart="on"),
-        sonoff(sensor_select="external"),
+        sonoff(sensor_select="remote_source_offline"),
+        sonoff(sensor_select=None),
     ],
 )
 def test_sonoff_unhealthy(valve: Valve) -> None:
     assert not assess(valve).healthy
+
+
+def test_sonoff_on_an_external_sensor_is_healthy() -> None:
+    assert assess(sonoff(sensor_select="remote_temperature")).healthy

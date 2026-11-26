@@ -65,7 +65,7 @@ async def test_overheating_room_is_a_problem(hass: HomeAssistant, calls: Calls) 
 
 async def test_unhealthy_and_missing_valves(hass: HomeAssistant, calls: Calls) -> None:
     set_plant(hass)
-    hass.states.async_set("select.living_trv_sensor", "external")
+    hass.states.async_set("select.living_trv_sensor", "remote_source_offline")
     hass.states.async_set("climate.bedroom_trv", "unavailable")
     hass.states.async_set("sensor.bedroom_trv_position", "unavailable")
     entry = await setup(hass)

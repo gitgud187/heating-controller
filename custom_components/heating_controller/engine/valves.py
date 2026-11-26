@@ -53,6 +53,6 @@ def _assess_sonoff(valve: SonoffValve, config: ValveConfig) -> ValveAssessment:
         and valve.opening_degree_pct == config.sonoff_required_degree_pct
         and valve.closing_degree_pct == config.sonoff_required_degree_pct
         and valve.smart_temperature_control == config.sonoff_healthy_smart_temperature_control
-        and valve.temperature_sensor_select == config.sonoff_healthy_sensor_select,
+        and valve.temperature_sensor_select in config.sonoff_healthy_sensor_selects,
         data_missing=heating is None,
     )
