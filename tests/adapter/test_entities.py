@@ -80,3 +80,46 @@ async def test_diagnostics(
     assert diagnostics["state"]["version"] == 3
     assert diagnostics["history"][0]["reasons"][0]["code"] == "start_load"
     assert diagnostics["history"][0]["rooms"]["Bedroom"] == "served"
+
+
+async def test_a_card_can_read_the_room_and_the_thresholds(
+    hass: HomeAssistant, calls: Calls
+) -> None:
+    """The load sensor carries its thresholds, the status sensor the room's readings."""
+    set_plant(hass, bedroom_c=18.0, living_c=21.0)
+    entry = await setup(hass)
+
+    load = hass.states.get("sensor.heating_controller_load")
+    assert load is not None
+    assert load.attributes["start_load_m2k"] == 4.0
+    assert load.attributes["stop_load_m2k"] == 1.5
+    output = hass.states.get("sensor.heating_controller_output")
+    assert output is not None
+    assert "start_load_m2k" not in output.attributes
+
+    bedroom = hass.states.get("sensor.bedroom_status")
+    assert bedroom is not None
+    assert bedroom.attributes["area_m2"] == 16.0
+    assert bedroom.attributes["current_temperature"] == 18.0
+    assert bedroom.attributes["target_temperature"] == 21.0
+    assert bedroom.attributes["valve_position"] == 40.0
+
+    living = hass.states.get("sensor.living_status")
+    assert living is not None
+    assert living.attributes["valve_position"] is None
+
+    # Sensors that stop reporting leave the attribute empty instead of guessing.
+    hass.states.async_set("sensor.bedroom_temperature", "unavailable")
+    hass.states.async_set("sensor.living_temperature", "21.0")
+    hass.states.async_remove("sensor.living_temperature")
+    hass.states.async_set("climate.bedroom", "unavailable")
+    await entry.runtime_data.async_evaluate()
+    await hass.async_block_till_done()
+
+    bedroom = hass.states.get("sensor.bedroom_status")
+    assert bedroom is not None
+    assert bedroom.attributes["current_temperature"] is None
+    assert bedroom.attributes["target_temperature"] is None
+    living = hass.states.get("sensor.living_status")
+    assert living is not None
+    assert living.attributes["current_temperature"] is None

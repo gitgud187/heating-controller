@@ -14,14 +14,21 @@ from homeassistant.components.sensor import (
 from homeassistant.const import PERCENTAGE, UnitOfTime
 from homeassistant.util import dt as dt_util
 
-from .const import SUBENTRY_ROOM
+from .const import (
+    CONF_AREA_M2,
+    CONF_POSITION_SENSOR,
+    CONF_THERMOSTAT,
+    CONF_WALL_SENSOR,
+    SUBENTRY_ROOM,
+)
 from .engine.demand import RoomStatus
 from .entity import ControllerEntity, RoomEntity
 
 if TYPE_CHECKING:
-    from collections.abc import Callable
+    from collections.abc import Callable, Mapping
     from datetime import datetime
 
+    from homeassistant.config_entries import ConfigSubentry
     from homeassistant.core import HomeAssistant
     from homeassistant.helpers.entity_platform import AddConfigEntryEntitiesCallback
 
@@ -33,6 +40,34 @@ PARALLEL_UPDATES = 0
 LOAD_UNIT = "m²·K"
 
 BOILER_STATES = ["off", "on", "locked_out", "paused", "unavailable"]
+
+
+def _entity_id(data: Mapping[str, Any], key: str) -> str | None:
+    """Return a configured entity id, or None when the key is missing or not an id."""
+    value = data.get(key)
+    return value if isinstance(value, str) else None
+
+
+def _number_state(hass: HomeAssistant, entity_id: str | None) -> float | None:
+    """Return a numeric state, or None when the entity is missing or not a number."""
+    state = hass.states.get(entity_id) if entity_id else None
+    if state is None:
+        return None
+    try:
+        return float(state.state)
+    except TypeError, ValueError:
+        return None
+
+
+def _number_attribute(hass: HomeAssistant, entity_id: str | None, attribute: str) -> float | None:
+    """Return a numeric attribute, or None when it is missing or not a number."""
+    state = hass.states.get(entity_id) if entity_id else None
+    if state is None:
+        return None
+    value = state.attributes.get(attribute)
+    if isinstance(value, bool) or not isinstance(value, int | float):
+        return None
+    return float(value)
 
 
 def boiler_state(controller: HeatingController) -> str | None:
@@ -218,11 +253,20 @@ class ControllerSensor(ControllerEntity, SensorEntity):
     @property
     @override
     def extra_state_attributes(self) -> dict[str, Any] | None:
-        """The boiler sensor carries the reason."""
+        """The boiler sensor carries the reason, the load sensor its thresholds."""
         last = self.controller.last
-        if self.entity_description.key != "boiler" or last is None:
+        if last is None:
             return None
-        return {"reason": last.reason.code.value, "message": last.reason.message}
+        key = self.entity_description.key
+        if key == "boiler":
+            return {"reason": last.reason.code.value, "message": last.reason.message}
+        if key == "load":
+            boiler = self.controller.config.boiler
+            return {
+                "start_load_m2k": boiler.start_load_m2k,
+                "stop_load_m2k": boiler.stop_load_m2k,
+            }
+        return None
 
 
 class RoomSensor(RoomEntity, SensorEntity):
@@ -234,13 +278,14 @@ class RoomSensor(RoomEntity, SensorEntity):
         self,
         controller: HeatingController,
         entry: HeatingControllerConfigEntry,
-        room: Any,
+        room: ConfigSubentry,
         description: RoomSensorDescription,
     ) -> None:
-        """Bind the description."""
+        """Bind the description and keep the room's own configuration."""
         super().__init__(controller, entry, room, description.key)
         self.entity_description = description
         self._attr_translation_key = description.translation_key
+        self._room = room.data
 
     @property
     @override
@@ -248,3 +293,22 @@ class RoomSensor(RoomEntity, SensorEntity):
         """Read it from the room's assessment."""
         assessment = self.assessment
         return None if assessment is None else self.entity_description.value_fn(assessment)
+
+    @property
+    @override
+    def extra_state_attributes(self) -> dict[str, Any] | None:
+        """The status sensor carries the room's readings, for a dashboard card."""
+        if self.assessment is None or self.entity_description.key != "status":
+            return None
+        return {
+            "area_m2": self._room.get(CONF_AREA_M2),
+            "current_temperature": _number_state(
+                self.hass, _entity_id(self._room, CONF_WALL_SENSOR)
+            ),
+            "target_temperature": _number_attribute(
+                self.hass, _entity_id(self._room, CONF_THERMOSTAT), "temperature"
+            ),
+            "valve_position": _number_state(
+                self.hass, _entity_id(self._room, CONF_POSITION_SENSOR)
+            ),
+        }
