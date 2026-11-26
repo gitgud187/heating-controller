@@ -5,7 +5,7 @@ Compare modulation variants over every scenario, several seeds and several plant
     uv run python -m sim.tune --quick         # default plant, one seed
 
 Gains are engine configuration. Variants the engine does not implement (conditional
-integration, an error signed over every heating room) are swapped into the engine's
+integration, the earlier error over served rooms only) are swapped into the engine's
 modulation module for the duration of their runs only.
 """
 
@@ -38,7 +38,7 @@ if TYPE_CHECKING:
 _HOUR = timedelta(hours=1)
 # Scenarios that provoke run-limit lockouts on purpose; their errors say nothing about tuning.
 LOCKOUT_SCENARIOS = frozenset({"clear_lockout", "undersized_radiator"})
-SIGNED_STATUSES = frozenset({RoomStatus.SERVED, RoomStatus.WAITING_FOR_VALVE, RoomStatus.SATISFIED})
+SERVED_STATUSES = frozenset({RoomStatus.SERVED, RoomStatus.WAITING_FOR_VALVE})
 
 
 def conditional_integral(  # noqa: PLR0913 - same signature as the engine's update_integral
@@ -49,11 +49,12 @@ def conditional_integral(  # noqa: PLR0913 - same signature as the engine's upda
     dt: timedelta,
     running_for: timedelta | None,
     config: ModulationConfig,
+    hold: bool = False,
 ) -> float:
     """Anti-windup by conditional integration: freeze only when the error pushes further out."""
     if running_for is None:
         return integral_pct * math.exp(-dt / config.decay_time_constant)
-    if running_for < config.integral_delay:
+    if running_for < config.integral_delay or hold:
         return integral_pct
     output = proportional_pct + integral_pct
     if (output >= config.max_pct and error_k > 0) or (output <= config.min_pct and error_k < 0):
@@ -63,13 +64,14 @@ def conditional_integral(  # noqa: PLR0913 - same signature as the engine's upda
     return max(-config.integral_limit_pct, min(config.integral_limit_pct, grown))
 
 
-def signed_error(rooms: Iterable[RoomAssessment]) -> float:
-    """Area-weighted error over every room that takes part, satisfied rooms included."""
-    taking_part = [r for r in rooms if r.status in SIGNED_STATUSES and r.error_k is not None]
-    area = sum(room.area_m2 for room in taking_part)
+def served_error(rooms: Iterable[RoomAssessment], satisfied_floor_k: float) -> float:
+    """Return the earlier error: area-weighted over served rooms only, never negative."""
+    del satisfied_floor_k  # same signature as the engine's weighted_error; no satisfied rooms
+    served = [r for r in rooms if r.status in SERVED_STATUSES and r.error_k is not None]
+    area = sum(room.area_m2 for room in served)
     if area == 0:
         return 0.0
-    return sum(room.area_m2 * (room.error_k or 0.0) for room in taking_part) / area
+    return sum(room.area_m2 * (room.error_k or 0.0) for room in served) / area
 
 
 @dataclass(frozen=True, slots=True)
@@ -80,7 +82,7 @@ class Variant:
     kp: float = 15.0
     ki: float = 10.0
     integral: Callable[..., float] | None = None
-    error: Callable[[Iterable[RoomAssessment]], float] | None = None
+    error: Callable[[Iterable[RoomAssessment], float], float] | None = None
 
     def config(self, base: EngineConfig) -> EngineConfig:
         """Return the engine config with this variant's gains."""
@@ -89,14 +91,15 @@ class Variant:
 
 
 VARIANTS = (
-    Variant("spec: Kp 15, Ki 10, freeze at bounds"),
+    Variant("spec: Kp 15, Ki 10, signed error, freeze at bounds"),
+    Variant("served-only error (before)", error=served_error),
     Variant("conditional integration", integral=conditional_integral),
     Variant("P only (Ki 0)", ki=0.0),
     Variant("Kp 10, Ki 5", kp=10.0, ki=5.0),
     Variant("Kp 15, Ki 5", ki=5.0),
     Variant("Kp 15, Ki 20", ki=20.0),
     Variant("Kp 25, Ki 10", kp=25.0),
-    Variant("signed error + conditional", integral=conditional_integral, error=signed_error),
+    Variant("signed error + conditional", integral=conditional_integral),
 )
 
 

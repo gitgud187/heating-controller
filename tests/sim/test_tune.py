@@ -43,13 +43,26 @@ def test_conditional_integration_freezes_only_into_saturation() -> None:
     assert step(6.0, 1.0, 50.0, None) == pytest.approx(6.0 * math.exp(-1 / 60))
 
 
-def test_signed_error_counts_satisfied_rooms() -> None:
+def test_conditional_integration_holds_while_a_valve_is_awaited() -> None:
+    held = tune.conditional_integral(
+        integral_pct=5.0,
+        error_k=1.0,
+        proportional_pct=50.0,
+        dt=timedelta(minutes=6),
+        running_for=timedelta(minutes=30),
+        config=CONFIG,
+        hold=True,
+    )
+    assert held == 5.0
+
+
+def test_served_error_ignores_satisfied_rooms() -> None:
     config = EngineConfig()
     cold = assess_room(room("cold", area_m2=10.0, wall=20.0), RoomState(), NOW, config)
-    warm = assess_room(room("warm", area_m2=10.0, wall=22.0), RoomState(), NOW, config)
-    assert tune.signed_error([cold, warm]) == pytest.approx(0.0)
-    assert modulation.weighted_error([cold, warm]) == pytest.approx(1.0)
-    assert tune.signed_error([]) == 0.0
+    warm = assess_room(room("warm", area_m2=10.0, wall=21.4), RoomState(), NOW, config)
+    assert tune.served_error([cold, warm], -0.5) == pytest.approx(1.0)
+    assert modulation.weighted_error([cold, warm], -0.5) == pytest.approx(0.3)
+    assert tune.served_error([], -0.5) == 0.0
 
 
 def test_variant_and_plant() -> None:
@@ -68,7 +81,7 @@ def short() -> Scenario:
 def test_swapped_functions_are_restored(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setattr(tune, "SCENARIOS", {"short": short, "clear_lockout": clear_lockout})
     original = modulation.update_integral
-    variant = tune.Variant("signed", integral=tune.conditional_integral, error=tune.signed_error)
+    variant = tune.Variant("signed", integral=tune.conditional_integral, error=tune.served_error)
     reports = tune.run_variant(variant, tune.PLANTS[:1], (1,))
     assert modulation.update_integral is original
     assert [name for name, _ in reports] == ["short", "clear_lockout"]

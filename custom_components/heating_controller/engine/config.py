@@ -69,6 +69,8 @@ class ModulationConfig:
     cold_outdoor_c: float = -5.0
     cold_base_pct: float = 70.0
     fallback_outdoor_c: float = 0.0
+    # A satisfied room counts towards the error with at most this much above target.
+    satisfied_floor_k: float = -0.5
     kp_pct_per_k: float = 15.0
     ki_pct_per_k_h: float = 10.0
     integral_limit_pct: float = 30.0

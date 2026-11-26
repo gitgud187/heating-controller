@@ -202,15 +202,26 @@ def _overheating_detected(room_name: str) -> Callable[[SimResult], list[str]]:
     return check
 
 
+# The stuck valve sits on a generous radiator: the output now falls while a room overshoots,
+# so with the default radiator the bedroom stays just under the overheating threshold and the
+# scenario would no longer exercise the detection it is there for.
+OVERSIZED = 1.5
+
+
 def valve_stuck_open() -> Scenario:
     """Hold the bedroom valve open: it still reports heating, and the room overheats."""
     return Scenario(
         name="valve_stuck_open",
-        description="bedroom valve held open at +5 °C",
+        description=f"bedroom valve held open, radiator at {OVERSIZED:.0%}, +5 °C",
         start=MIDNIGHT,
         duration=DAY,
         outdoor=OutdoorProfile(mean_c=5.0, amplitude_k=3.0),
-        house=default_house(),
+        house=default_house().with_room(
+            "bedroom",
+            lambda spec: replace(
+                spec, params=replace(spec.params, radiator_w=spec.params.radiator_w * OVERSIZED)
+            ),
+        ),
         events=(ValveFaultEvent("bedroom", FAULT_AT, ValveFault.STUCK_OPEN),),
         checks=(_overheating_detected("bedroom"),),
     )

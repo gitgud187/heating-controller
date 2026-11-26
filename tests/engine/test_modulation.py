@@ -9,8 +9,10 @@ from custom_components.heating_controller.engine.config import EngineConfig, Mod
 from custom_components.heating_controller.engine.demand import (
     RoomAssessment,
     RoomState,
+    RoomStatus,
     assess_room,
 )
+from custom_components.heating_controller.engine.model import ThermostatMode
 from custom_components.heating_controller.engine.modulation import (
     ModulationInput,
     ModulationResult,
@@ -20,7 +22,7 @@ from custom_components.heating_controller.engine.modulation import (
     weighted_error,
 )
 
-from .factories import NOW, room
+from .factories import NOW, moes, room
 
 CONFIG = ModulationConfig()
 
@@ -64,17 +66,35 @@ def test_heating_curve(outdoor_c: float, expected: float) -> None:
     assert base_pct(outdoor_c, CONFIG) == pytest.approx(expected)
 
 
-def test_weighted_error_is_area_weighted_over_served_rooms() -> None:
+FLOOR = CONFIG.satisfied_floor_k
+
+
+def test_weighted_error_is_area_weighted_over_served_and_satisfied_rooms() -> None:
     rooms = [
         served("big", 15.0, wall=20.0),
         served("small", 5.0, wall=19.0),
-        served("warm", 50.0, wall=22.0),
+        served("warm", 20.0, wall=21.3),
     ]
-    assert weighted_error(rooms) == pytest.approx((15 * 1.0 + 5 * 2.0) / 20)
+    assert weighted_error(rooms, FLOOR) == pytest.approx((15 * 1.0 + 5 * 2.0 - 20 * 0.3) / 40)
 
 
-def test_weighted_error_without_served_rooms_is_zero() -> None:
-    assert weighted_error([served("warm", 10.0, wall=22.0)]) == 0.0
+def test_weighted_error_turns_negative_when_rooms_overshoot() -> None:
+    # The served-only error could never go below 0, so the integral only ever grew.
+    rooms = [served("cold", 10.0, wall=20.9), served("warm", 10.0, wall=21.4)]
+    assert weighted_error(rooms, FLOOR) < 0
+
+
+def test_satisfied_room_counts_no_lower_than_the_floor() -> None:
+    rooms = [served("setback", 10.0, wall=24.0)]
+    assert weighted_error(rooms, FLOOR) == pytest.approx(FLOOR)
+
+
+def test_weighted_error_ignores_rooms_that_take_no_heat() -> None:
+    off = assess_room(
+        room("off", wall=15.0, mode=ThermostatMode.OFF), RoomState(), NOW, EngineConfig()
+    )
+    assert weighted_error([off], FLOOR) == 0.0
+    assert weighted_error([], FLOOR) == 0.0
 
 
 def integral(
@@ -106,6 +126,48 @@ def test_integral_step_is_capped() -> None:
 def test_integral_is_bounded() -> None:
     assert integral(value=29.9, dt=timedelta(minutes=5)) == 30.0
     assert integral(value=-29.9, error_k=-1.0, proportional_pct=70.0) == -30.0
+
+
+def test_integral_frozen_while_a_valve_is_awaited() -> None:
+    held = update_integral(
+        integral_pct=5.0,
+        error_k=1.0,
+        proportional_pct=50.0,
+        dt=timedelta(minutes=3),
+        running_for=timedelta(minutes=30),
+        config=CONFIG,
+        hold=True,
+    )
+    assert held == 5.0
+
+
+def test_modulation_holds_the_integral_while_a_room_waits_for_its_valve() -> None:
+    waiting = assess_room(
+        room("a", wall=20.0, valve=moes(heating=False, position=0.0)),
+        RoomState(),
+        NOW,
+        EngineConfig(),
+    )
+    assert waiting.status is RoomStatus.WAITING_FOR_VALVE
+    result = step(
+        rooms=(waiting,),
+        integral_pct=4.0,
+        on_for=timedelta(minutes=30),
+        since_last=timedelta(minutes=3),
+    )
+    assert result.integral_pct == 4.0
+    assert result.p_pct == pytest.approx(15.0)
+
+
+def test_integral_unwinds_while_rooms_sit_above_target() -> None:
+    rooms = (served("warm", 10.0, wall=21.3),)
+    result = step(
+        rooms=rooms,
+        integral_pct=20.0,
+        on_for=timedelta(minutes=30),
+        since_last=timedelta(minutes=3),
+    )
+    assert result.integral_pct == pytest.approx(20.0 - 10 * 0.3 * 3 / 60)
 
 
 def test_integral_frozen_in_first_minutes_of_run() -> None:
