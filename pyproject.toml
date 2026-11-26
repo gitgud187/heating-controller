@@ -1,6 +1,6 @@
 [project]
 name = "heating-controller"
-version = "0.1.1"
+version = "0.1.2"
 description = "Home Assistant integration that owns a boiler: when it runs, how hard, and when it must stop."
 readme = "README.md"
 license = "MIT"

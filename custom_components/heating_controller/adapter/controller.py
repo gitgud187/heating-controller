@@ -34,6 +34,7 @@ from ..const import (
     HEARTBEAT_INTERVAL,
     HISTORY_LENGTH,
     MIN_REEVALUATE_GAP,
+    STARTUP_GRACE,
     STORAGE_VERSION,
 )
 from ..engine.evaluate import Command, Evaluation, evaluate
@@ -131,6 +132,7 @@ class HeatingController:
                 self.state = EngineState.from_dict(stored)
             except ValueError:
                 _LOGGER.warning("Stored controller state unreadable; starting fresh")
+        self.problems.hold_until = dt_util.utcnow() + STARTUP_GRACE
         timers = self._timers.unsubscribe
         timers.append(async_track_time_interval(self.hass, self._on_tick, EVALUATE_INTERVAL))
         timers.append(async_track_time_interval(self.hass, self._on_heartbeat, HEARTBEAT_INTERVAL))
@@ -210,7 +212,7 @@ class HeatingController:
             await self._async_write(evaluation.command)
         self._store.async_delay_save(self.state.to_dict, 5)
         await self.problems.async_update(
-            problems_of(evaluation, self.overheating, self.problems.active), now
+            problems_of(evaluation, self.overheating, self.problems.current), now
         )
         for listener in list(self._listeners):
             listener()

@@ -21,6 +21,8 @@ from custom_components.heating_controller.engine.state import EngineState
 from .conftest import Calls, make_entry, set_plant, setup
 
 if TYPE_CHECKING:
+    import pytest
+    from freezegun.api import FrozenDateTimeFactory
     from homeassistant.core import HomeAssistant
     from pytest_homeassistant.common import MockConfigEntry
 
@@ -215,3 +217,31 @@ async def test_unload_stops_and_clears_issues(hass: HomeAssistant, calls: Calls)
     async_fire_time_changed(hass, dt_util.utcnow() + timedelta(minutes=5))
     await hass.async_block_till_done()
     assert len(calls.press) == presses
+
+
+async def test_problems_wait_for_the_startup_grace(
+    hass: HomeAssistant,
+    calls: Calls,
+    monkeypatch: pytest.MonkeyPatch,
+    freezer: FrozenDateTimeFactory,
+) -> None:
+    monkeypatch.setattr(
+        "custom_components.heating_controller.adapter.controller.STARTUP_GRACE",
+        timedelta(minutes=3),
+    )
+    set_plant(hass, boiler="unavailable")
+    hass.states.async_set("sensor.bedroom_temperature", "unavailable")
+    entry = await setup(hass)
+    ctrl = controller(entry)
+    registry = ir.async_get(hass)
+    assert "boiler_unavailable" in ctrl.problems.current
+    assert ctrl.problems.active == {}
+    assert calls.notify == []
+
+    set_plant(hass)  # the board reconnected within the grace; the wall sensor is still gone
+    hass.states.async_set("sensor.bedroom_temperature", "unavailable")
+    freezer.tick(timedelta(minutes=4))
+    await ctrl.async_evaluate()
+    assert set(ctrl.problems.active) == {"wall_invalid_bedroom"}
+    assert registry.async_get_issue(DOMAIN, "boiler_unavailable") is None
+    assert len(calls.notify) == 1

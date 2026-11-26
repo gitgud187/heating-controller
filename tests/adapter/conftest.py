@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+from datetime import timedelta
 from typing import TYPE_CHECKING, Any
 
 import pytest
@@ -114,6 +115,14 @@ def set_plant(  # noqa: PLR0913 - every knob of the fake house
     hass.states.async_set("number.living_trv_closing", "100")
     hass.states.async_set("switch.living_trv_smart", "off")
     hass.states.async_set("select.living_trv_sensor", "local_temperature")
+
+
+@pytest.fixture(autouse=True)
+def no_startup_grace(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Report problems at once; the grace itself has its own test."""
+    monkeypatch.setattr(
+        "custom_components.heating_controller.adapter.controller.STARTUP_GRACE", timedelta(0)
+    )
 
 
 @dataclass

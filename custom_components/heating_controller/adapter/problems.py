@@ -128,14 +128,24 @@ class ProblemReporter:
     """Turns the set of active problems into repair issues and notifications."""
 
     def __init__(self, hass: HomeAssistant, entry_id: str, notify_service: str | None) -> None:
-        """Remember where to report."""
+        """Remember where to report. Nothing is held back until `hold_until` is set."""
         self._hass = hass
         self._entry_id = entry_id
         self._notify = notify_service
+        self.hold_until: datetime | None = None
+        self.current: dict[str, Problem] = {}
         self.active: dict[str, Problem] = {}
 
     async def async_update(self, problems: dict[str, Problem], now: datetime) -> None:
-        """Create issues and notify for new problems, delete the issues of ended ones."""
+        """
+        Create issues and notify for new problems, delete the issues of ended ones.
+
+        Before `hold_until` the problems are only remembered: one that is still there
+        afterwards is reported then, one that cleared up on its own never is.
+        """
+        self.current = problems
+        if self.hold_until is not None and now < self.hold_until:
+            return
         for key in self.active.keys() - problems.keys():
             ir.async_delete_issue(self._hass, DOMAIN, key)
         for key, problem in problems.items():
@@ -159,6 +169,7 @@ class ProblemReporter:
         for key in self.active:
             ir.async_delete_issue(self._hass, DOMAIN, key)
         self.active = {}
+        self.current = {}
 
     async def _async_notify(self, problem: Problem, now: datetime) -> None:
         if not self._notify:
