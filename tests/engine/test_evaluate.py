@@ -149,9 +149,31 @@ def test_boiler_unavailable_commands_nothing() -> None:
     result = run.step(cold, boiler_unavailable=True)
     assert result.command is None
     assert result.reason.code is ReasonCode.BOILER_UNAVAILABLE
-    assert not result.state.boiler_on
-    assert result.state.last_off == NOW + timedelta(minutes=1)
+    # Whether it runs is unknown: the run is neither ended nor restarted.
+    assert result.state.on_since == NOW
+    assert result.state.starts == (NOW,)
+    assert result.state.last_off is None
     assert result.state.modulation_pct is None
+
+
+def test_a_boiler_back_from_unavailable_continues_its_run() -> None:
+    run = Run()
+    run.step(cold)
+    run.step(cold, boiler_unavailable=True)
+    back = run.step(cold)
+    assert back.command.heat  # type: ignore[union-attr]  # boiler available
+    assert back.state.on_since == NOW
+    assert back.state.starts == (NOW,)
+
+
+def test_unavailable_then_no_data_still_holds() -> None:
+    # A restart: first the board is not connected, then no room has data yet.
+    run = Run()
+    run.step(cold)
+    run.step(cold, boiler_unavailable=True)
+    held = run.step(invalid)
+    assert held.reason.code is ReasonCode.RUNNING_EXCLUDED_HOLD
+    assert held.command.heat  # type: ignore[union-attr]  # boiler available
 
 
 def test_satisfied_rooms_with_closed_valves_stop_a_run_before_minimum_on() -> None:

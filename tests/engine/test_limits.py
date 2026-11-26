@@ -76,7 +76,9 @@ class History:
         complete: bool,
         open_valve: bool,
     ) -> None:
-        heat = result.command is not None and result.command.heat
+        if result.command is None:
+            return  # boiler unavailable: nothing commanded, the run is neither ended nor begun
+        heat = result.command.heat
         if heat and self.on_since is None:
             assert complete
             self._check_start(now, controls, open_valve=open_valve)

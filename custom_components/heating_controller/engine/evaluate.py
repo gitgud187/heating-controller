@@ -195,7 +195,19 @@ def _next_state(  # noqa: PLR0913 - assembles every part of the new state
     config: EngineConfig,
     excluded_since: datetime | None,
 ) -> EngineState:
-    heat = command is not None and command.heat
+    if command is None:
+        # The boiler entities are unavailable: whether it runs is unknown, so the run is
+        # neither ended nor started. When it comes back, a boiler found off counts as a stop
+        # made outside the engine; one found on continues the same run.
+        return replace(
+            state,
+            lockout_until=guarded.lockout_until,
+            modulation_pct=None,
+            last_evaluated=now,
+            rooms={room.name: room.state for room in rooms},
+            excluded_since=excluded_since,
+        )
+    heat = command.heat
     starts = recent_starts(state.starts, now, config.guard.start_window)
     if heat and not state.boiler_on:
         starts = (*starts, now)
@@ -208,7 +220,7 @@ def _next_state(  # noqa: PLR0913 - assembles every part of the new state
         no_open_valve_since=guarded.no_open_valve_since if heat else None,
         progress=guarded.progress if heat else (),
         integral_pct=modulation.integral_pct,
-        modulation_pct=None if command is None else command.modulation_pct,
+        modulation_pct=command.modulation_pct,
         last_evaluated=now,
         rooms={room.name: room.state for room in rooms},
         starving_since={} if heat else starving,

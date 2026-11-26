@@ -8,6 +8,7 @@ keep-alive after a board restart.
 
 from __future__ import annotations
 
+import asyncio
 import logging
 from collections import deque
 from dataclasses import dataclass, field
@@ -126,6 +127,9 @@ class HeatingController:
         self._timers = _Timers()
         self._last_evaluated: datetime | None = None
         self._set_up_at = dt_util.utcnow()
+        # Timer, input change, pause and button can trigger evaluations at the same time; each
+        # one reads and replaces the engine state and awaits service calls in between.
+        self._lock = asyncio.Lock()
 
     # --- lifecycle -----------------------------------------------------------------------
 
@@ -211,7 +215,11 @@ class HeatingController:
         await self.async_evaluate()
 
     async def async_evaluate(self) -> Evaluation:
-        """Run one evaluation and act on it."""
+        """Run one evaluation and act on it, one at a time."""
+        async with self._lock:
+            return await self._async_evaluate_locked()
+
+    async def _async_evaluate_locked(self) -> Evaluation:
         now = dt_util.utcnow()
         controls = Controls(paused=self.controls.paused, clear_lockout=self.controls.clear_lockout)
         self.controls.clear_lockout = False

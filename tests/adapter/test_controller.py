@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import asyncio
 from datetime import timedelta
 from typing import TYPE_CHECKING, Any
 
@@ -311,3 +312,16 @@ async def test_heartbeat_before_the_first_evaluation_is_limited(
     now = dt_util.utcnow()
     assert ctrl.heartbeat_due(now)
     assert not ctrl.heartbeat_due(now + timedelta(minutes=11))
+
+
+async def test_concurrent_evaluations_run_one_after_the_other(
+    hass: HomeAssistant, calls: Calls
+) -> None:
+    set_plant(hass, bedroom_c=18.0)
+    entry = await setup(hass)
+    ctrl = controller(entry)
+    ctrl.state = EngineState()  # forget the start so both would want to start
+    first, second = await asyncio.gather(ctrl.async_evaluate(), ctrl.async_evaluate())
+    assert first.reason.code is ReasonCode.START_LOAD
+    assert second.reason.code is not ReasonCode.START_LOAD  # it saw the first start
+    assert len(ctrl.state.starts) == 1
