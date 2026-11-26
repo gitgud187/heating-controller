@@ -53,8 +53,10 @@ async def test_unavailable_and_missing_entities(hass: HomeAssistant) -> None:
     hass.states.async_set("climate.living", "unavailable")
     hass.states.async_remove("select.living_trv_sensor")
     hass.states.async_set("number.boiler_power", "unavailable")
-    snapshot = builder(hass).build(dt_util.utcnow())
-    assert not snapshot.complete
+    snapshots = builder(hass)
+    snapshot = snapshots.build(dt_util.utcnow())
+    assert snapshot.complete  # only a missing boiler entity makes it incomplete
+    assert snapshots.missing == ("select.living_trv_sensor",)
     assert snapshot.boiler_on is None
     bedroom, living = snapshot.rooms
     assert bedroom.valve.heating.value is None
@@ -93,3 +95,13 @@ async def test_watched_entities(hass: HomeAssistant) -> None:
     assert "sensor.bedroom_temperature" in watched
     assert "select.living_trv_sensor" in watched
     assert "sensor.outdoor" not in watched
+
+
+async def test_a_missing_boiler_entity_makes_it_incomplete(hass: HomeAssistant) -> None:
+    set_plant(hass)
+    hass.states.async_remove("switch.boiler")
+    snapshots = builder(hass)
+    snapshot = snapshots.build(dt_util.utcnow())
+    assert not snapshot.complete
+    assert snapshot.boiler_on is None
+    assert snapshots.missing == ("switch.boiler",)

@@ -74,6 +74,7 @@ class SnapshotBuilder:
         self._hass = hass
         self._plant = plant
         self._rooms = rooms
+        self.missing: tuple[str, ...] = ()
 
     @property
     def watched(self) -> tuple[str, ...]:
@@ -82,17 +83,26 @@ class SnapshotBuilder:
         return (*plant, *(entity for room in self._rooms for entity in room.entities))
 
     def build(self, now: datetime) -> Snapshot:
-        """Read every input; a configured entity that does not exist makes it incomplete."""
+        """
+        Read every input.
+
+        A room entity that does not exist reads as unavailable, so only that room is left
+        out. Only a missing boiler entity makes the snapshot incomplete (no start at all).
+        Every missing entity is kept in `missing` for the problem report.
+        """
         missing: list[str] = []
         rooms = tuple(self._room(room, missing) for room in self._rooms)
         outdoor = self._reading(self._plant[CONF_OUTDOOR_SENSOR], missing)
+        plant: list[str] = []
+        boiler_on = self._boiler_on(plant)
+        self.missing = (*missing, *plant)
         return Snapshot(
             now=now,
             taken_at=now,
-            complete=not missing,
+            complete=not plant,
             rooms=rooms,
             outdoor=outdoor,
-            boiler_on=self._boiler_on(missing),
+            boiler_on=boiler_on,
         )
 
     def _state(self, entity_id: str, missing: list[str]) -> State | None:

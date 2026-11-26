@@ -13,6 +13,8 @@ class ValidityConfig:
     """When inputs can be trusted."""
 
     stale_after: timedelta = DEFAULT_STALE_AFTER
+    # Outdoor sensors often report only on change, and the outdoor temperature changes slowly.
+    outdoor_stale_after: timedelta = timedelta(hours=3)
 
 
 @dataclass(frozen=True, slots=True)

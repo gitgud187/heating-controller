@@ -13,8 +13,8 @@ from collections import deque
 from dataclasses import dataclass, field
 from typing import TYPE_CHECKING, Any
 
-from homeassistant.const import ATTR_ENTITY_ID, STATE_ON
-from homeassistant.core import CALLBACK_TYPE, Event, EventStateChangedData, callback
+from homeassistant.const import ATTR_ENTITY_ID, EVENT_HOMEASSISTANT_STARTED, STATE_ON
+from homeassistant.core import CALLBACK_TYPE, CoreState, Event, EventStateChangedData, callback
 from homeassistant.exceptions import HomeAssistantError
 from homeassistant.helpers.event import (
     async_call_later,
@@ -25,6 +25,7 @@ from homeassistant.helpers.storage import Store
 from homeassistant.util import dt as dt_util
 
 from ..const import (
+    BOOT_HEARTBEAT,
     CONF_BOILER_SWITCH,
     CONF_HEARTBEAT,
     CONF_NOTIFY_SERVICE,
@@ -32,9 +33,10 @@ from ..const import (
     DOMAIN,
     EVALUATE_INTERVAL,
     HEARTBEAT_INTERVAL,
+    HEARTBEAT_STALE_AFTER,
     HISTORY_LENGTH,
     MIN_REEVALUATE_GAP,
-    STARTUP_GRACE,
+    PROBLEM_DELAY,
     STORAGE_VERSION,
 )
 from ..engine.evaluate import Command, Evaluation, evaluate
@@ -117,10 +119,13 @@ class HeatingController:
         self.overheating: frozenset[str] = frozenset()
         self._overheat_since: dict[str, datetime] = {}
         self.history: deque[HistoryEntry] = deque(maxlen=HISTORY_LENGTH)
-        self.problems = ProblemReporter(hass, entry_id, plant.get(CONF_NOTIFY_SERVICE))
+        self.problems = ProblemReporter(
+            hass, entry_id, plant.get(CONF_NOTIFY_SERVICE), delay=PROBLEM_DELAY
+        )
         self._listeners: list[Callable[[], None]] = []
         self._timers = _Timers()
         self._last_evaluated: datetime | None = None
+        self._set_up_at = dt_util.utcnow()
 
     # --- lifecycle -----------------------------------------------------------------------
 
@@ -132,15 +137,25 @@ class HeatingController:
                 self.state = EngineState.from_dict(stored)
             except ValueError:
                 _LOGGER.warning("Stored controller state unreadable; starting fresh")
-        self.problems.hold_until = dt_util.utcnow() + STARTUP_GRACE
         timers = self._timers.unsubscribe
         timers.append(async_track_time_interval(self.hass, self._on_tick, EVALUATE_INTERVAL))
         timers.append(async_track_time_interval(self.hass, self._on_heartbeat, HEARTBEAT_INTERVAL))
         timers.append(
             async_track_state_change_event(self.hass, self._builder.watched, self._on_change)
         )
-        await self.async_evaluate()
         await self._async_press_heartbeat()
+        if self.hass.state is CoreState.running:
+            await self.async_evaluate()
+        else:
+            # At boot the thermostats and valves are not loaded yet; every room would look
+            # untrustworthy and a running boiler would be stopped. The board keeps its last
+            # command until then (its failsafe covers a boot that never finishes).
+            timers.append(
+                self.hass.bus.async_listen_once(EVENT_HOMEASSISTANT_STARTED, self._on_started)
+            )
+
+    async def _on_started(self, _event: Event) -> None:
+        await self.async_evaluate()
 
     async def async_stop(self) -> None:
         """Stop timers and listeners, save the state, drop the issues."""
@@ -212,7 +227,8 @@ class HeatingController:
             await self._async_write(evaluation.command)
         self._store.async_delay_save(self.state.to_dict, 5)
         await self.problems.async_update(
-            problems_of(evaluation, self.overheating, self.problems.current), now
+            problems_of(evaluation, self.overheating, self.problems.current, self._builder.missing),
+            now,
         )
         for listener in list(self._listeners):
             listener()
@@ -231,7 +247,23 @@ class HeatingController:
         elif not command.heat and is_on:
             await self._async_call("switch", "turn_off", switch)
 
+    def heartbeat_due(self, now: datetime) -> bool:
+        """
+        Whether the board may be told that the controller is alive.
+
+        Only while evaluations succeed: a controller whose evaluation keeps failing must let the
+        board's watchdog switch the boiler off. Before the first evaluation (Home Assistant still
+        starting) the heartbeat runs for at most `BOOT_HEARTBEAT`.
+        """
+        if self._last_evaluated is None:
+            return now - self._set_up_at <= BOOT_HEARTBEAT
+        return now - self._last_evaluated <= HEARTBEAT_STALE_AFTER
+
     async def _async_press_heartbeat(self) -> None:
+        now = dt_util.utcnow()
+        if not self.heartbeat_due(now):
+            _LOGGER.warning("No successful evaluation recently; heartbeat withheld")
+            return
         await self._async_call("button", "press", self._plant[CONF_HEARTBEAT])
 
     async def _async_call(

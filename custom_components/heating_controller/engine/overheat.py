@@ -29,12 +29,15 @@ def track_overheat(
     """
     Update when each room went over its target by more than `above_k`.
 
-    Returns the new clocks and the rooms that have been over for at least `after`. A room
-    that is not heating (excluded, thermostat off, window open) loses its clock.
+    Only a room whose valve is open counts: that is a valve held open. A room that is merely
+    cooling down after a setback has a closed valve. Returns the new clocks and the rooms that
+    have been over for at least `after`. A room that is not heating (excluded, thermostat off,
+    window open) loses its clock.
     """
     clocks: dict[str, datetime] = {}
     for room in rooms:
-        if room.status in HEATING and room.error_k is not None and -room.error_k > config.above_k:
+        over = room.error_k is not None and -room.error_k > config.above_k
+        if room.status in HEATING and room.valve.open and over:
             clocks[room.name] = since.get(room.name, now)
     overheating = frozenset(name for name, start in clocks.items() if now - start >= config.after)
     return clocks, overheating

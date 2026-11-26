@@ -4,7 +4,8 @@ from datetime import timedelta
 from typing import TYPE_CHECKING, Any
 
 from homeassistant.config_entries import ConfigEntryState
-from homeassistant.core import State
+from homeassistant.const import EVENT_HOMEASSISTANT_STARTED
+from homeassistant.core import CoreState, State
 from homeassistant.exceptions import HomeAssistantError
 from homeassistant.helpers import issue_registry as ir
 from homeassistant.util import dt as dt_util
@@ -219,14 +220,14 @@ async def test_unload_stops_and_clears_issues(hass: HomeAssistant, calls: Calls)
     assert len(calls.press) == presses
 
 
-async def test_problems_wait_for_the_startup_grace(
+async def test_problems_are_reported_only_once_they_last(
     hass: HomeAssistant,
     calls: Calls,
     monkeypatch: pytest.MonkeyPatch,
     freezer: FrozenDateTimeFactory,
 ) -> None:
     monkeypatch.setattr(
-        "custom_components.heating_controller.adapter.controller.STARTUP_GRACE",
+        "custom_components.heating_controller.adapter.controller.PROBLEM_DELAY",
         timedelta(minutes=3),
     )
     set_plant(hass, boiler="unavailable")
@@ -238,10 +239,75 @@ async def test_problems_wait_for_the_startup_grace(
     assert ctrl.problems.active == {}
     assert calls.notify == []
 
-    set_plant(hass)  # the board reconnected within the grace; the wall sensor is still gone
+    set_plant(hass)  # the board reconnected within the delay; the wall sensor is still gone
     hass.states.async_set("sensor.bedroom_temperature", "unavailable")
     freezer.tick(timedelta(minutes=4))
     await ctrl.async_evaluate()
     assert set(ctrl.problems.active) == {"wall_invalid_bedroom"}
     assert registry.async_get_issue(DOMAIN, "boiler_unavailable") is None
     assert len(calls.notify) == 1
+
+
+async def test_evaluation_waits_for_home_assistant_to_start(
+    hass: HomeAssistant, calls: Calls
+) -> None:
+    set_plant(hass, bedroom_c=18.0)
+    hass.set_state(CoreState.starting)
+    entry = await setup(hass)
+    assert controller(entry).last is None
+    assert calls.turn_on == []
+    assert calls.press  # the heartbeat runs from the start
+    hass.set_state(CoreState.running)
+    hass.bus.async_fire(EVENT_HOMEASSISTANT_STARTED)
+    await hass.async_block_till_done()
+    assert last(entry).reason.code is ReasonCode.START_LOAD
+    assert calls.turn_on
+
+
+async def test_notify_entity_gets_send_message(hass: HomeAssistant, calls: Calls) -> None:
+    send = async_mock_service(hass, "notify", "send_message")
+    hass.states.async_set("notify.chat", "unknown")
+    data = dict(make_entry().data) | {"notify_service": "notify.chat"}
+    set_plant(hass)
+    hass.states.async_set("sensor.outdoor", "unavailable")
+    await setup(hass, make_entry(data=data))
+    assert [call.data["entity_id"] for call in send] == ["notify.chat"]
+    assert "Outdoor" in send[0].data["message"]
+
+
+async def test_missing_room_entity_is_reported_and_only_that_room_left_out(
+    hass: HomeAssistant, calls: Calls
+) -> None:
+    set_plant(hass, bedroom_c=18.0)
+    hass.states.async_remove("select.living_trv_sensor")
+    entry = await setup(hass)
+    assert last(entry).reason.code is ReasonCode.START_LOAD  # the bedroom still heats
+    assert "entity_missing" in controller(entry).problems.active
+    assert "select.living_trv_sensor" in calls.notify[0].data["message"]
+
+
+async def test_heartbeat_is_withheld_when_evaluations_stop(
+    hass: HomeAssistant, calls: Calls, freezer: FrozenDateTimeFactory
+) -> None:
+    set_plant(hass)
+    entry = await setup(hass)
+    ctrl = controller(entry)
+    now = dt_util.utcnow()
+    assert ctrl.heartbeat_due(now)
+    assert not ctrl.heartbeat_due(now + timedelta(minutes=3))
+    presses = len(calls.press)
+    freezer.tick(timedelta(minutes=3))
+    await ctrl._async_press_heartbeat()
+    assert len(calls.press) == presses
+
+
+async def test_heartbeat_before_the_first_evaluation_is_limited(
+    hass: HomeAssistant, calls: Calls
+) -> None:
+    set_plant(hass)
+    hass.set_state(CoreState.starting)
+    entry = await setup(hass)
+    ctrl = controller(entry)
+    now = dt_util.utcnow()
+    assert ctrl.heartbeat_due(now)
+    assert not ctrl.heartbeat_due(now + timedelta(minutes=11))

@@ -87,6 +87,14 @@ def boiler_state(controller: HeatingController) -> str | None:
     return "off"
 
 
+def _output(controller: HeatingController) -> int | None:
+    """Return what the boiler really gets: the request while it runs, 0 while it is off."""
+    last = controller.last
+    if last is None or last.command is None:
+        return None
+    return last.command.modulation_pct if last.command.heat else 0
+
+
 def _run_minutes(controller: HeatingController) -> float | None:
     if controller.last is None:
         return None
@@ -132,7 +140,7 @@ CONTROLLER_SENSORS: tuple[ControllerSensorDescription, ...] = (
         translation_key="modulation",
         native_unit_of_measurement=PERCENTAGE,
         state_class=SensorStateClass.MEASUREMENT,
-        value_fn=lambda c: None if c.last is None else c.last.modulation.output_pct,
+        value_fn=_output,
     ),
     ControllerSensorDescription(
         key="base",

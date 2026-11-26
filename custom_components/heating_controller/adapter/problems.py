@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import logging
 from dataclasses import dataclass
+from datetime import datetime, timedelta
 from enum import StrEnum
 from typing import TYPE_CHECKING
 
@@ -21,8 +22,6 @@ from ..engine.demand import RoomStatus
 from ..engine.reasons import ReasonCode
 
 if TYPE_CHECKING:
-    from datetime import datetime
-
     from homeassistant.core import HomeAssistant
 
     from ..engine.evaluate import Evaluation
@@ -34,6 +33,7 @@ class ProblemKind(StrEnum):
     """Every problem the controller reports; the value is the issue's translation key."""
 
     WALL_INVALID = "wall_invalid"
+    THERMOSTAT_INVALID = "thermostat_invalid"
     VALVE_DATA_MISSING = "valve_data_missing"
     VALVE_UNHEALTHY = "valve_unhealthy"
     ROOM_BLOCKED = "room_blocked"
@@ -42,10 +42,12 @@ class ProblemKind(StrEnum):
     NO_OPEN_VALVE = "no_open_valve"
     OUTDOOR_UNAVAILABLE = "outdoor_unavailable"
     BOILER_UNAVAILABLE = "boiler_unavailable"
+    ENTITY_MISSING = "entity_missing"
 
 
 ROOM_PROBLEMS: dict[RoomStatus, ProblemKind] = {
     RoomStatus.WALL_INVALID: ProblemKind.WALL_INVALID,
+    RoomStatus.THERMOSTAT_INVALID: ProblemKind.THERMOSTAT_INVALID,
     RoomStatus.VALVE_DATA_MISSING: ProblemKind.VALVE_DATA_MISSING,
     RoomStatus.VALVE_UNHEALTHY: ProblemKind.VALVE_UNHEALTHY,
     RoomStatus.BLOCKED: ProblemKind.ROOM_BLOCKED,
@@ -53,6 +55,7 @@ ROOM_PROBLEMS: dict[RoomStatus, ProblemKind] = {
 
 MESSAGES: dict[ProblemKind, str] = {
     ProblemKind.WALL_INVALID: "{room}: wall sensor unavailable or stale, room left out",
+    ProblemKind.THERMOSTAT_INVALID: "{room}: thermostat unavailable, room left out",
     ProblemKind.VALVE_DATA_MISSING: "{room}: valve unavailable, room left out",
     ProblemKind.VALVE_UNHEALTHY: "{room}: valve in the wrong mode or settings, room left out",
     ProblemKind.ROOM_BLOCKED: "{room}: needs heat but its valve stays closed",
@@ -61,6 +64,7 @@ MESSAGES: dict[ProblemKind, str] = {
     ProblemKind.NO_OPEN_VALVE: "Boiler {message}",
     ProblemKind.OUTDOOR_UNAVAILABLE: "Outdoor temperature unavailable, using the fallback",
     ProblemKind.BOILER_UNAVAILABLE: "Boiler entities unavailable, nothing commanded",
+    ProblemKind.ENTITY_MISSING: "Configured entities not found: {entities}",
 }
 
 # Notified when they happen, shown as an issue until the next start.
@@ -82,10 +86,16 @@ class Problem:
 
 
 def problems_of(
-    evaluation: Evaluation, overheating: frozenset[str], previous: dict[str, Problem]
+    evaluation: Evaluation,
+    overheating: frozenset[str],
+    previous: dict[str, Problem],
+    missing: tuple[str, ...] = (),
 ) -> dict[str, Problem]:
     """Every problem the evaluation shows. Event-like problems last until the boiler starts."""
     found: list[Problem] = []
+    if missing:
+        text = MESSAGES[ProblemKind.ENTITY_MISSING].format(entities=", ".join(sorted(missing)))
+        found.append(Problem(ProblemKind.ENTITY_MISSING, None, text))
     for room in evaluation.rooms:
         kind = ROOM_PROBLEMS.get(room.status)
         if kind is not None:
@@ -125,31 +135,37 @@ def _boiler_events(evaluation: Evaluation, previous: dict[str, Problem]) -> list
 
 
 class ProblemReporter:
-    """Turns the set of active problems into repair issues and notifications."""
+    """
+    Turns the set of active problems into repair issues and notifications.
 
-    def __init__(self, hass: HomeAssistant, entry_id: str, notify_service: str | None) -> None:
-        """Remember where to report. Nothing is held back until `hold_until` is set."""
+    A problem is reported once it has lasted `delay`; one that clears up sooner never is.
+    """
+
+    def __init__(
+        self,
+        hass: HomeAssistant,
+        entry_id: str,
+        notify_target: str | None,
+        delay: timedelta = timedelta(0),
+    ) -> None:
+        """Remember where to report and how long a problem must last."""
         self._hass = hass
         self._entry_id = entry_id
-        self._notify = notify_service
-        self.hold_until: datetime | None = None
+        self._notify = notify_target
+        self._delay = delay
+        self._first_seen: dict[str, datetime] = {}
         self.current: dict[str, Problem] = {}
         self.active: dict[str, Problem] = {}
 
     async def async_update(self, problems: dict[str, Problem], now: datetime) -> None:
-        """
-        Create issues and notify for new problems, delete the issues of ended ones.
-
-        Before `hold_until` the problems are only remembered: one that is still there
-        afterwards is reported then, one that cleared up on its own never is.
-        """
+        """Report problems that lasted long enough, delete the issues of ended ones."""
         self.current = problems
-        if self.hold_until is not None and now < self.hold_until:
-            return
+        self._first_seen = {key: self._first_seen.get(key, now) for key in problems}
         for key in self.active.keys() - problems.keys():
             ir.async_delete_issue(self._hass, DOMAIN, key)
+        reported = {key: p for key, p in self.active.items() if key in problems}
         for key, problem in problems.items():
-            if key in self.active:
+            if key in reported or now - self._first_seen[key] < self._delay:
                 continue
             ir.async_create_issue(
                 self._hass,
@@ -162,7 +178,8 @@ class ProblemReporter:
                 translation_placeholders={"room": problem.room or "", "message": problem.message},
             )
             await self._async_notify(problem, now)
-        self.active = problems
+            reported[key] = problem
+        self.active = reported
 
     def clear(self) -> None:
         """Delete every issue this reporter created (on unload)."""
@@ -170,19 +187,27 @@ class ProblemReporter:
             ir.async_delete_issue(self._hass, DOMAIN, key)
         self.active = {}
         self.current = {}
+        self._first_seen = {}
 
     async def _async_notify(self, problem: Problem, now: datetime) -> None:
+        """
+        Send one message.
+
+        The target is either a notify entity (`notify.send_message`, the current way, e.g. a
+        Telegram chat) or a legacy notify service (`notify.<service>`).
+        """
         if not self._notify:
             return
-        domain, _, service = self._notify.partition(".")
-        if not service:
-            domain, service = "notify", domain
+        message = f"Heating: {problem.message} ({now:%H:%M})"
+        domain, _, name = self._notify.partition(".")
+        if not name:
+            domain, name = "notify", domain
+        target = f"{domain}.{name}"
+        if self._hass.states.get(target) is not None:
+            service, data = "send_message", {"entity_id": target, "message": message}
+        else:
+            service, data = name, {"message": message}
         try:
-            await self._hass.services.async_call(
-                domain,
-                service,
-                {"message": f"Heating: {problem.message} ({now:%H:%M})"},
-                blocking=False,
-            )
+            await self._hass.services.async_call(domain, service, data, blocking=True)
         except HomeAssistantError:
             _LOGGER.warning("Could not send the notification for %s", problem.key)

@@ -11,7 +11,7 @@ from custom_components.heating_controller.engine.demand import (
 from custom_components.heating_controller.engine.model import ThermostatMode
 from custom_components.heating_controller.engine.overheat import track_overheat
 
-from .factories import NOW, room
+from .factories import NOW, moes, room
 
 CONFIG = OverheatConfig()
 
@@ -35,3 +35,10 @@ def test_cooling_down_or_switching_off_resets() -> None:
     assert track_overheat(clocks, [assessed(22.4)], NOW, CONFIG) == ({}, frozenset())
     off = assessed(23.0, ThermostatMode.OFF)
     assert track_overheat(clocks, [off], NOW, CONFIG) == ({}, frozenset())
+
+
+def test_a_room_cooling_down_with_a_closed_valve_is_not_overheating() -> None:
+    snap = room("bedroom", wall=23.0, valve=moes(heating=False, position=0.0))
+    cooling = assess_room(snap, RoomState(), NOW, EngineConfig())
+    clocks = {"bedroom": NOW - timedelta(hours=1)}
+    assert track_overheat(clocks, [cooling], NOW, CONFIG) == ({}, frozenset())

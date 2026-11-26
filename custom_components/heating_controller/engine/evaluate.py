@@ -80,7 +80,7 @@ def evaluate(
         ModulationInput(
             now=now,
             rooms=rooms,
-            outdoor_c=fresh_value(snapshot.outdoor, now, config.validity.stale_after),
+            outdoor_c=fresh_value(snapshot.outdoor, now, config.validity.outdoor_stale_after),
             integral_pct=state.integral_pct,
             last_evaluated=state.last_evaluated,
             on_since=state.on_since,

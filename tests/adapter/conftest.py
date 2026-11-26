@@ -118,10 +118,10 @@ def set_plant(  # noqa: PLR0913 - every knob of the fake house
 
 
 @pytest.fixture(autouse=True)
-def no_startup_grace(monkeypatch: pytest.MonkeyPatch) -> None:
-    """Report problems at once; the grace itself has its own test."""
+def no_problem_delay(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Report problems at once; the delay itself has its own test."""
     monkeypatch.setattr(
-        "custom_components.heating_controller.adapter.controller.STARTUP_GRACE", timedelta(0)
+        "custom_components.heating_controller.adapter.controller.PROBLEM_DELAY", timedelta(0)
     )
 
 

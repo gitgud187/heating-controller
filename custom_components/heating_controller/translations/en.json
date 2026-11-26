@@ -160,6 +160,7 @@
   },
   "issues": {
     "wall_invalid": { "title": "{room}: wall sensor unavailable", "description": "{message}. The room is left out until the sensor reports again." },
+    "thermostat_invalid": { "title": "{room}: thermostat unavailable", "description": "{message}. Check the room's thermostat." },
     "valve_data_missing": { "title": "{room}: valve unavailable", "description": "{message}. Check the valve in Zigbee2MQTT." },
     "valve_unhealthy": { "title": "{room}: valve misconfigured", "description": "{message}. Check the valve's mode and settings." },
     "room_blocked": { "title": "{room}: valve stays closed", "description": "{message}. Common causes: open window, child lock, flat battery, calibration." },
@@ -167,6 +168,7 @@
     "lockout": { "title": "Boiler locked out", "description": "{message}. Find out why the run did not get anywhere; the lockout ends by itself or with the clear-lockout button." },
     "no_open_valve": { "title": "Boiler stopped: no open valve", "description": "{message}." },
     "outdoor_unavailable": { "title": "Outdoor temperature unavailable", "description": "{message}." },
+    "entity_missing": { "title": "Configured entities not found", "description": "{message}. A room with a missing entity is left out; reconfigure it." },
     "boiler_unavailable": { "title": "Boiler unavailable", "description": "{message}." }
   }
 }
