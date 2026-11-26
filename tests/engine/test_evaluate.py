@@ -247,12 +247,21 @@ def test_a_restart_gap_delays_the_progress_verdict() -> None:
     assert stopped.reason.code is ReasonCode.NO_PROGRESS
 
 
-def test_all_rooms_excluded_stops_immediately() -> None:
+def test_all_rooms_excluded_holds_then_stops() -> None:
     run = Run()
     run.step(cold)
+    held = run.step(invalid)
+    assert held.reason.code is ReasonCode.RUNNING_EXCLUDED_HOLD
+    assert held.command.heat  # type: ignore[union-attr]  # boiler available
+    assert held.state.excluded_since is not None
+    for _ in range(4):
+        held = run.step(invalid)
+        assert held.command.heat  # type: ignore[union-attr]  # boiler available
     result = run.step(invalid)
     assert result.reason.code is ReasonCode.ALL_ROOMS_EXCLUDED
     assert not result.command.heat  # type: ignore[union-attr]  # boiler available
+    back = run.step(cold)
+    assert back.state.excluded_since is None
 
 
 def test_no_rooms_means_off() -> None:

@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from dataclasses import replace
 from datetime import timedelta
 
 import pytest
@@ -132,15 +133,29 @@ def test_on_stops_below_stop_load_after_minimum_on() -> None:
 
 def test_all_rooms_excluded_wins_over_everything() -> None:
     decision = decide(
-        core(
-            load=10.0,
-            on_for=timedelta(minutes=1),
-            all_excluded=True,
+        replace(
+            core(load=10.0, on_for=timedelta(minutes=10), all_excluded=True),
+            excluded_since=NOW - CONFIG.excluded_hold,
         ),
         CONFIG,
     )
     assert not decision.heat
     assert decision.reason.code is ReasonCode.ALL_ROOMS_EXCLUDED
+
+
+def test_a_running_boiler_holds_while_data_is_briefly_missing() -> None:
+    held = decide(
+        replace(
+            core(load=0.0, on_for=timedelta(minutes=30), all_excluded=True),
+            excluded_since=NOW - timedelta(minutes=4),
+        ),
+        CONFIG,
+    )
+    assert held.heat
+    assert held.reason.code is ReasonCode.RUNNING_EXCLUDED_HOLD
+    assert held.reason.message == "running: no room has trustworthy data for 4 min, holding"
+    off = decide(core(load=10.0, all_excluded=True), CONFIG)
+    assert not off.heat  # an off boiler never starts without data
 
 
 def test_reason_helpers() -> None:

@@ -297,7 +297,12 @@ def _z2m_checks(result: SimResult) -> list[str]:
     failures = []
     if not _at(result, Z2M_AT - MINUTE).heating:
         failures.append("scenario expects the boiler to run when the valves go away")
-    for sample in _between(result, Z2M_AT, Z2M_AT + Z2M_FOR):
+    hold = result.scenario.config.boiler.excluded_hold
+    for sample in _between(result, Z2M_AT, Z2M_AT + hold):
+        if sample.heating and sample.reasons[-1] is not ReasonCode.RUNNING_EXCLUDED_HOLD:
+            failures.append(f"boiler on at {sample.time:%H:%M} without holding")
+            break
+    for sample in _between(result, Z2M_AT + hold + MINUTE, Z2M_AT + Z2M_FOR):
         if sample.heating:
             failures.append(f"boiler on at {sample.time:%H:%M} without valve data")
             break

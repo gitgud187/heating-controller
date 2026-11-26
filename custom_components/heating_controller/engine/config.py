@@ -49,7 +49,7 @@ class BoilerConfig:
     The core state machine: start, starvation start, stop.
 
     `external_stop_grace`: how long after a start the switch may still read off without that
-    counting as a stop made outside the engine.
+    counting as a stop made outside the engine. `excluded_hold`: see below.
     """
 
     start_load_m2k: float = 4.0
@@ -57,6 +57,10 @@ class BoilerConfig:
     min_on: timedelta = timedelta(minutes=10)
     starvation_after: timedelta = timedelta(minutes=45)
     external_stop_grace: timedelta = timedelta(seconds=30)
+    # A running boiler keeps running this long while no room has trustworthy data. After a
+    # Home Assistant restart the thermostats and valves need up to a minute to come back; a
+    # short Zigbee outage looks the same. Data that stays away still stops the boiler.
+    excluded_hold: timedelta = timedelta(minutes=5)
 
 
 @dataclass(frozen=True, slots=True)

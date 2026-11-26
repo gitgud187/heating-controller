@@ -24,6 +24,7 @@ class CoreInput:
     load_m2k: float
     starving_since: Mapping[str, datetime]
     all_excluded: bool
+    excluded_since: datetime | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -60,6 +61,16 @@ def update_starvation(
 def decide(core: CoreInput, config: BoilerConfig) -> CoreDecision:
     """Start, stop or hold, with the reason."""
     if core.all_excluded:
+        since = core.excluded_since or core.now
+        if core.on_since is not None and core.now - since < config.excluded_hold:
+            held = minutes(core.now - since)
+            return CoreDecision(
+                heat=True,
+                reason=Reason(
+                    ReasonCode.RUNNING_EXCLUDED_HOLD,
+                    f"running: no room has trustworthy data for {held} min, holding",
+                ),
+            )
         return CoreDecision(
             heat=False,
             reason=Reason(ReasonCode.ALL_ROOMS_EXCLUDED, "off: no room has trustworthy data"),

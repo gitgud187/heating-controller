@@ -118,12 +118,15 @@ def test_z2m_checks() -> None:
     result = run("z2m_down")
     off_before = edit(result, *at(sc.Z2M_AT - MINUTE), heating=False)
     assert failures(off_before)[0].startswith("scenario expects")
-    window = (sc.Z2M_AT, sc.Z2M_AT + sc.Z2M_FOR)
+    hold = result.scenario.config.boiler.excluded_hold
+    window = (sc.Z2M_AT + hold + MINUTE, sc.Z2M_AT + sc.Z2M_FOR)
     assert "without valve data" in failures(edit(result, *window, heating=True))[0]
     wrong_reason = edit(result, *window, reasons=(ReasonCode.IDLE,))
     assert failures(wrong_reason)[0].startswith("reason idle")
     trusted = edit(result, *window, "bedroom", status=RoomStatus.SERVED)
     assert failures(trusted)[0].startswith("a room not fail-closed")
+    unexplained = edit(result, *at(sc.Z2M_AT), heating=True, reasons=(ReasonCode.RUNNING_LOAD,))
+    assert failures(unexplained)[0].startswith("boiler on at")
 
 
 def test_hung_checks() -> None:

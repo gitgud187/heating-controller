@@ -40,6 +40,7 @@ class EngineState:
     last_evaluated: datetime | None = None
     rooms: Mapping[str, RoomState] = field(default_factory=dict)
     starving_since: Mapping[str, datetime] = field(default_factory=dict)
+    excluded_since: datetime | None = None
 
     @property
     def boiler_on(self) -> bool:
@@ -63,6 +64,7 @@ class EngineState:
                 name: {"needs_heat": room.needs_heat, "blocked_since": _iso(room.blocked_since)}
                 for name, room in self.rooms.items()
             },
+            "excluded_since": _iso(self.excluded_since),
             "starving_since": {
                 name: since.isoformat() for name, since in self.starving_since.items()
             },
@@ -95,6 +97,7 @@ class EngineState:
             integral_pct=_float(data.get("integral_pct", 0.0)),
             modulation_pct=_opt_int(data.get("modulation_pct")),
             last_evaluated=_opt_datetime(data.get("last_evaluated")),
+            excluded_since=_opt_datetime(data.get("excluded_since")),
             rooms={name: _room(value) for name, value in _mapping(data.get("rooms", {})).items()},
             starving_since={
                 name: _datetime(value)

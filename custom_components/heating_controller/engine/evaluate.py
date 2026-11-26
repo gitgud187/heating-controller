@@ -63,6 +63,8 @@ def evaluate(
         for room in snapshot.rooms
     )
     load = total_load(rooms)
+    all_excluded = all(room.excluded for room in rooms)
+    excluded_since = (state.excluded_since or now) if all_excluded else None
     starving = update_starvation(
         state.starving_since, rooms, boiler_on=state.boiler_on, load_m2k=load, now=now
     )
@@ -72,10 +74,12 @@ def evaluate(
             on_since=state.on_since,
             load_m2k=load,
             starving_since=starving,
-            all_excluded=all(room.excluded for room in rooms),
+            all_excluded=all_excluded,
+            excluded_since=excluded_since,
         ),
         config.boiler,
     )
+    holding = core.reason.code is ReasonCode.RUNNING_EXCLUDED_HOLD
     modulation = modulate(
         ModulationInput(
             now=now,
@@ -106,7 +110,8 @@ def evaluate(
             starts=state.starts,
             lockout_until=state.lockout_until,
             no_open_valve_since=state.no_open_valve_since,
-            any_valve_open=any(room.valve.open for room in rooms),
+            # While holding without trustworthy data the valves are unknown, not closed.
+            any_valve_open=holding or any(room.valve.open for room in rooms),
             snapshot_complete=snapshot.complete,
             snapshot_age=now - snapshot.taken_at,
             paused=controls.paused,
@@ -133,6 +138,7 @@ def evaluate(
 
     new_state = _next_state(
         state,
+        excluded_since=excluded_since,
         now=now,
         command=command,
         guarded=guarded,
@@ -187,6 +193,7 @@ def _next_state(  # noqa: PLR0913 - assembles every part of the new state
     starving: dict[str, datetime],
     modulation: ModulationResult,
     config: EngineConfig,
+    excluded_since: datetime | None,
 ) -> EngineState:
     heat = command is not None and command.heat
     starts = recent_starts(state.starts, now, config.guard.start_window)
@@ -205,4 +212,5 @@ def _next_state(  # noqa: PLR0913 - assembles every part of the new state
         last_evaluated=now,
         rooms={room.name: room.state for room in rooms},
         starving_since={} if heat else starving,
+        excluded_since=excluded_since,
     )

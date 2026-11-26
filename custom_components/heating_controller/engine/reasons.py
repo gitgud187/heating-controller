@@ -23,6 +23,7 @@ class ReasonCode(StrEnum):
     WAITING_LOAD = "waiting_load"
     IDLE = "idle"
     ALL_ROOMS_EXCLUDED = "all_rooms_excluded"
+    RUNNING_EXCLUDED_HOLD = "running_excluded_hold"
     BOILER_UNAVAILABLE = "boiler_unavailable"
     EXTERNAL_STOP = "external_stop"
     # guard
