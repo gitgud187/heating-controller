@@ -32,6 +32,7 @@ class RoomStatus(StrEnum):
     SATISFIED = "satisfied"
     SERVED = "served"
     WAITING_FOR_VALVE = "waiting_for_valve"
+    VALVE_SETTLED = "valve_settled"
     BLOCKED = "blocked"
 
 
@@ -134,7 +135,12 @@ def assess_room(
     if valve_problem is not None:
         return result(valve_problem, RoomState(heat, previous.blocked_since), error_k)
     status, state = _demand_status(
-        heat=heat, valve_open=valve.open, previous=previous, now=now, config=config
+        heat=heat,
+        valve_open=valve.open,
+        error_k=error_k,
+        previous=previous,
+        now=now,
+        config=config,
     )
     return result(status, state, error_k)
 
@@ -155,10 +161,21 @@ def _valve_status(valve: ValveAssessment) -> RoomStatus | None:
     return None
 
 
-def _demand_status(
-    *, heat: bool, valve_open: bool, previous: RoomState, now: datetime, config: EngineConfig
+def _demand_status(  # noqa: PLR0913 - every input of the decision, by keyword
+    *,
+    heat: bool,
+    valve_open: bool,
+    error_k: float,
+    previous: RoomState,
+    now: datetime,
+    config: EngineConfig,
 ) -> tuple[RoomStatus, RoomState]:
-    """Satisfied, served, or waiting for the valve until the grace runs out (blocked)."""
+    """
+    Satisfied, served, or waiting for the valve until the grace runs out.
+
+    After the grace a room well below target is blocked; one close to target has a valve that
+    settled on its own and no longer counts.
+    """
     if not heat:
         return RoomStatus.SATISFIED, RoomState()
     if valve_open:
@@ -166,5 +183,7 @@ def _demand_status(
     blocked_since = previous.blocked_since or now
     state = RoomState(needs_heat=True, blocked_since=blocked_since)
     if now - blocked_since > config.demand.blocked_after:
-        return RoomStatus.BLOCKED, state
+        if error_k >= config.demand.blocked_min_k:
+            return RoomStatus.BLOCKED, state
+        return RoomStatus.VALVE_SETTLED, state
     return RoomStatus.WAITING_FOR_VALVE, state

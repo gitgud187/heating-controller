@@ -99,7 +99,7 @@ def test_blocked_checks() -> None:
     soon = edit(
         result, early, early + 5 * MINUTE, "kitchen", status=RoomStatus.BLOCKED, load_m2k=0.0
     )
-    assert "expected 16" in failures(soon)[0]
+    assert "before the 30 min grace" in failures(soon)[0]
 
 
 def test_frozen_checks() -> None:

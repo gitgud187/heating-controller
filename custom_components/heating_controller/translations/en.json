@@ -78,6 +78,7 @@
           "min_on_min": "Minimum run (min)",
           "needs_heat_k": "Room needs heat below target by (K)",
           "blocked_after_min": "Room blocked after (min)",
+          "blocked_min_k": "Blocked only this far below target (K)",
           "stale_after_min": "Sensor stale after (min)",
           "min_off_min": "Minimum off between runs (min)",
           "max_starts": "Starts per hour",
@@ -137,7 +138,8 @@
           "satisfied": "Satisfied",
           "served": "Heating",
           "waiting_for_valve": "Waiting for valve",
-          "blocked": "Blocked"
+          "blocked": "Blocked",
+          "valve_settled": "Valve settled below target"
         }
       },
       "room_load": { "name": "Load share" },

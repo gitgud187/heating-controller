@@ -19,10 +19,18 @@ class ValidityConfig:
 
 @dataclass(frozen=True, slots=True)
 class DemandConfig:
-    """Thermal demand hysteresis and the blocked-room grace."""
+    """
+    Thermal demand hysteresis and the blocked-room grace.
+
+    A room whose valve stays closed while it needs heat is blocked after `blocked_after`, but
+    only while it is at least `blocked_min_k` below target. Closer to target a closed valve is
+    the valve settling on its own sensor (which sits by the radiator and reads warm); the room
+    then stops counting towards the load without being reported.
+    """
 
     needs_heat_k: float = 0.2
-    blocked_after: timedelta = timedelta(minutes=15)
+    blocked_after: timedelta = timedelta(minutes=30)
+    blocked_min_k: float = 0.5
 
 
 @dataclass(frozen=True, slots=True)

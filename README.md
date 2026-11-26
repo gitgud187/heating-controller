@@ -8,7 +8,8 @@ It reads the rooms (thermostats, wall sensors, radiator valves) and never comman
 ## What it does
 
 - **Demand from rooms, not from valves.** A room asks for heat from its wall sensor; its valve may
-  only veto (a closed valve for 15 minutes marks the room as blocked).
+  only veto (a valve closed for 30 minutes while the room is at least 0.5 K below target
+  marks it as blocked).
 - **Load, not votes.** Rooms are weighted by floor area, so a small room cannot start a large boiler
   on its own, but a long-waiting room eventually will.
 - **Weather compensation with room influence.** Output = a base from the outdoor temperature plus a

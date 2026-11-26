@@ -150,13 +150,27 @@ def test_closed_valve_counts_as_served_during_grace() -> None:
 
 
 def test_closed_valve_blocks_after_grace() -> None:
-    since = NOW - timedelta(minutes=15, seconds=1)
+    since = NOW - timedelta(minutes=30, seconds=1)
     result = assess(
         room(valve=moes(heating=False, position=0.0)),
         RoomState(needs_heat=True, blocked_since=since),
     )
     assert result.status is RoomStatus.BLOCKED
     assert result.blocked
+    assert not result.served
+    assert result.load_m2k == 0.0
+    assert result.state.blocked_since == since
+
+
+def test_closed_valve_close_to_target_has_settled() -> None:
+    # 0.3 K below target: the valve closed on its own warm sensor; not a fault, and no load.
+    since = NOW - timedelta(hours=1)
+    result = assess(
+        room(target=20.5, wall=20.2, valve=moes(heating=False, position=0.0)),
+        RoomState(needs_heat=True, blocked_since=since),
+    )
+    assert result.status is RoomStatus.VALVE_SETTLED
+    assert not result.blocked
     assert not result.served
     assert result.load_m2k == 0.0
     assert result.state.blocked_since == since

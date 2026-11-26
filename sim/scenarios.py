@@ -209,8 +209,8 @@ def _blocked_after_grace(room_name: str) -> Callable[[SimResult], list[str]]:
         if waiting is None or blocked is None:
             return [f"{room_name} never blocked (waiting since {waiting})"]
         grace = (blocked - waiting) / MINUTE
-        if not 15 < grace <= 17:  # noqa: PLR2004 - 15 min grace, one evaluation of slack
-            return [f"{room_name} blocked after {grace:.0f} min, expected 16"]
+        if grace <= 30:  # noqa: PLR2004 - the grace is 30 min
+            return [f"{room_name} blocked after {grace:.0f} min, before the 30 min grace"]
         return []
 
     return check
