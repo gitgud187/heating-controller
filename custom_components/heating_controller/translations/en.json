@@ -65,6 +65,7 @@
           "starvation_after_min": "Start for a waiting room after (min)",
           "min_on_min": "Minimum run (min)",
           "needs_heat_k": "Room needs heat below target by (K)",
+          "satisfied_k": "Room is warm enough below target by (K)",
           "blocked_after_min": "Room blocked after (min)",
           "blocked_min_k": "Blocked only this far below target (K)",
           "stale_after_min": "Sensor stale after (min)",
@@ -84,6 +85,9 @@
           "cold_base_pct": "Output at the cold point (%)"
         }
       }
+    },
+    "error": {
+      "satisfied_not_below_needs_heat": "“Warm enough” must be smaller than “needs heat”, or rooms would switch on and off at the same temperature."
     }
   },
   "entity": {

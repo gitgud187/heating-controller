@@ -152,9 +152,13 @@ class HeatingControllerOptionsFlow(OptionsFlow):
 
     async def async_step_init(self, user_input: dict[str, Any] | None = None) -> ConfigFlowResult:
         """One form with every option."""
+        errors: dict[str, str] = {}
         if user_input is not None:
-            return self.async_create_entry(data=user_input)
-        current = self.config_entry.options
+            if _band_is_inverted(user_input):
+                errors["satisfied_k"] = "satisfied_not_below_needs_heat"
+            else:
+                return self.async_create_entry(data=user_input)
+        current = {**self.config_entry.options, **(user_input or {})}
         schema = probatio.Schema(
             {
                 probatio.Required(
@@ -170,4 +174,12 @@ class HeatingControllerOptionsFlow(OptionsFlow):
                 for option in OPTIONS
             }
         )
-        return self.async_show_form(step_id="init", data_schema=schema)
+        return self.async_show_form(step_id="init", data_schema=schema, errors=errors)
+
+
+def _band_is_inverted(user_input: Mapping[str, Any]) -> bool:
+    """Return whether a room would leave the demand band at or above where it enters it."""
+    defaults = {option.key: option.default for option in OPTIONS}
+    needs_heat = user_input.get("needs_heat_k", defaults["needs_heat_k"])
+    satisfied = user_input.get("satisfied_k", defaults["satisfied_k"])
+    return bool(satisfied >= needs_heat)

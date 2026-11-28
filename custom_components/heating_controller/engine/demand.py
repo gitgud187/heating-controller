@@ -87,11 +87,13 @@ class RoomAssessment:
         return self.area_m2 * self.error_k
 
 
-def needs_heat(*, previous: bool, error_k: float, needs_heat_k: float) -> bool:
-    """Hysteresis: in at `error >= needs_heat_k`, out at `error <= 0`, else hold."""
+def needs_heat(
+    *, previous: bool, error_k: float, needs_heat_k: float, satisfied_k: float = 0.0
+) -> bool:
+    """Hysteresis: in at `error >= needs_heat_k`, out at `error <= satisfied_k`, else hold."""
     if error_k >= needs_heat_k:
         return True
-    if error_k <= 0:
+    if error_k <= satisfied_k:
         return False
     return previous
 
@@ -127,7 +129,10 @@ def assess_room(
         return result(no_demand, RoomState(), error_k)
 
     heat = needs_heat(
-        previous=previous.needs_heat, error_k=error_k, needs_heat_k=config.demand.needs_heat_k
+        previous=previous.needs_heat,
+        error_k=error_k,
+        needs_heat_k=config.demand.needs_heat_k,
+        satisfied_k=config.demand.satisfied_k,
     )
     valve_problem = _valve_status(valve)
     if valve_problem is not None:

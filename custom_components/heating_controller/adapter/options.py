@@ -43,6 +43,7 @@ OPTIONS: tuple[Option, ...] = (
     _option("starvation_after_min", "boiler", "starvation_after", "min", 5, 240, 5),
     _option("min_on_min", "boiler", "min_on", "min", 0, 60, 1),
     _option("needs_heat_k", "demand", "needs_heat_k", "k", 0.1, 2, 0.1),
+    _option("satisfied_k", "demand", "satisfied_k", "k", 0, 1.9, 0.1),
     _option("blocked_after_min", "demand", "blocked_after", "min", 1, 120, 1),
     _option("blocked_min_k", "demand", "blocked_min_k", "k", 0.1, 3, 0.1),
     _option("stale_after_min", "validity", "stale_after", "min", 5, 240, 5),

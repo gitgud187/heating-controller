@@ -113,3 +113,21 @@ async def test_options_flow_stores_numbers(hass: HomeAssistant, calls: Calls) ->
     await hass.async_block_till_done()
     assert entry.runtime_data.config.boiler.start_load_m2k == 5.0
     assert await hass.config_entries.async_unload(entry.entry_id)
+
+
+async def test_options_flow_refuses_an_inverted_band(hass: HomeAssistant, calls: Calls) -> None:
+    set_plant(hass)
+    entry = await setup(hass)
+    result = await hass.config_entries.options.async_init(entry.entry_id)
+    result = await hass.config_entries.options.async_configure(
+        result["flow_id"], {"needs_heat_k": 0.3, "satisfied_k": 0.3}
+    )
+    assert result["type"] is FlowResultType.FORM
+    assert result["errors"] == {"satisfied_k": "satisfied_not_below_needs_heat"}
+    result = await hass.config_entries.options.async_configure(
+        result["flow_id"], {"needs_heat_k": 0.5, "satisfied_k": 0.2}
+    )
+    assert result["type"] is FlowResultType.CREATE_ENTRY
+    await hass.async_block_till_done()
+    assert entry.runtime_data.config.demand.satisfied_k == 0.2
+    assert await hass.config_entries.async_unload(entry.entry_id)

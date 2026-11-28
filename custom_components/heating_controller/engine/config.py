@@ -26,9 +26,14 @@ class DemandConfig:
     only while it is at least `blocked_min_k` below target. Closer to target a closed valve is
     the valve settling on its own sensor (which sits by the radiator and reads warm); the room
     then stops counting towards the load without being reported.
+
+    A room needs heat from `needs_heat_k` below target until it is no more than `satisfied_k`
+    below. A positive `satisfied_k` lets the radiators' residual heat carry the room the rest of
+    the way after the boiler stops; it must stay below `needs_heat_k`.
     """
 
     needs_heat_k: float = 0.2
+    satisfied_k: float = 0.0
     blocked_after: timedelta = timedelta(minutes=30)
     blocked_min_k: float = 0.5
 

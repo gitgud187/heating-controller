@@ -1,10 +1,11 @@
 from __future__ import annotations
 
+from dataclasses import replace
 from datetime import timedelta
 
 import pytest
 
-from custom_components.heating_controller.engine.config import EngineConfig
+from custom_components.heating_controller.engine.config import DemandConfig, EngineConfig
 from custom_components.heating_controller.engine.demand import (
     RoomAssessment,
     RoomState,
@@ -20,8 +21,10 @@ CONFIG = EngineConfig()
 OLD = NOW - timedelta(minutes=20)
 
 
-def assess(snap: RoomSnapshot, previous: RoomState | None = None) -> RoomAssessment:
-    return assess_room(snap, previous or RoomState(), NOW, CONFIG)
+def assess(
+    snap: RoomSnapshot, previous: RoomState | None = None, config: EngineConfig = CONFIG
+) -> RoomAssessment:
+    return assess_room(snap, previous or RoomState(), NOW, config)
 
 
 @pytest.mark.parametrize(
@@ -41,6 +44,35 @@ def test_hysteresis(
     expected: bool,  # noqa: FBT001 - parametrized
 ) -> None:
     assert needs_heat(previous=previous, error_k=error_k, needs_heat_k=0.2) is expected
+
+
+@pytest.mark.parametrize(
+    ("previous", "error_k", "expected"),
+    [
+        (False, 0.5, True),
+        (False, 0.4, False),
+        (True, 0.3, True),
+        (True, 0.2, False),
+        (True, 0.1, False),
+    ],
+)
+def test_hysteresis_can_end_below_target(
+    previous: bool,  # noqa: FBT001 - parametrized
+    error_k: float,
+    expected: bool,  # noqa: FBT001 - parametrized
+) -> None:
+    result = needs_heat(previous=previous, error_k=error_k, needs_heat_k=0.5, satisfied_k=0.2)
+    assert result is expected
+
+
+def test_a_room_close_to_target_is_satisfied_with_satisfied_k() -> None:
+    config = replace(EngineConfig(), demand=DemandConfig(needs_heat_k=0.5, satisfied_k=0.2))
+    heating = RoomState(needs_heat=True)
+    result = assess(room(target=20.0, wall=19.8, valve=moes()), previous=heating, config=config)
+    assert result.status is RoomStatus.SATISFIED
+    assert result.load_m2k == 0.0
+    result = assess(room(target=20.0, wall=19.7, valve=moes()), previous=heating, config=config)
+    assert result.status is RoomStatus.SERVED
 
 
 def test_sensor_steps_of_a_tenth_reach_the_threshold() -> None:
